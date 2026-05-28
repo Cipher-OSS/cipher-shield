@@ -3,7 +3,6 @@ package db
 import (
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
 	shield "github.com/homes853/cipher-shield/internal"
 )
 
@@ -31,6 +30,8 @@ func Open(driver, dsn string) (Store, error) {
 	switch driver {
 	case "sqlite3":
 		return openSQLite(dsn)
+	case "postgres":
+		return openPostgres(dsn)
 	default:
 		return nil, fmt.Errorf("unsupported db driver: %s", driver)
 	}
