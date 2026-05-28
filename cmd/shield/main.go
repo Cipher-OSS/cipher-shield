@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	shield "github.com/homes853/cipher-shield/internal"
@@ -16,6 +18,8 @@ import (
 	"github.com/homes853/cipher-shield/internal/db"
 	"github.com/homes853/cipher-shield/internal/lockfile"
 	"github.com/homes853/cipher-shield/internal/pipeline"
+	"github.com/homes853/cipher-shield/internal/proxy"
+	"github.com/homes853/cipher-shield/internal/proxyctl"
 )
 
 func main() {
@@ -27,7 +31,7 @@ func main() {
 	case "scan":
 		runScan(os.Args[2:])
 	case "proxy":
-		fmt.Println("proxy: use 'shield-server' for the full proxy server")
+		runProxy(os.Args[2:])
 	case "version":
 		fmt.Println("cipher-shield v0.1.0")
 	default:
@@ -225,6 +229,108 @@ func verdictStr(v shield.Verdict) string {
 	}
 }
 
+func runProxy(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: cipher-shield proxy start|stop|status")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "start":
+		proxyStart(args[1:])
+	case "stop":
+		proxyStop()
+	case "status":
+		fmt.Println("proxy:", proxyctl.Status())
+	default:
+		fmt.Fprintf(os.Stderr, "unknown proxy subcommand: %s\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func proxyStart(args []string) {
+	addr := envOr("SHIELD_PROXY_ADDR", "127.0.0.1:7070")
+	for i, a := range args {
+		if a == "--addr" && i+1 < len(args) {
+			addr = args[i+1]
+		}
+	}
+	proxyURL := "http://" + addr
+
+	if proxyctl.IsRunning() {
+		fmt.Printf("cipher-shield proxy is already running (%s)\n", proxyctl.Status())
+		os.Exit(0)
+	}
+
+	// Build pipeline
+	pl := buildPipeline()
+
+	// Configure npm + pip to route through proxy
+	if err := proxyctl.SaveAndSetNPM(proxyURL); err != nil {
+		fmt.Fprintf(os.Stderr, "[warn] npm config failed: %v\n", err)
+	} else {
+		fmt.Printf("✓ npm registry → %s\n", proxyURL)
+	}
+	if err := proxyctl.SaveAndSetPIP(proxyURL); err != nil {
+		fmt.Fprintf(os.Stderr, "[warn] pip config failed: %v\n", err)
+	} else {
+		fmt.Printf("✓ pip index-url → %s/simple/\n", proxyURL)
+	}
+
+	// Write PID
+	proxyctl.WritePID(os.Getpid())
+
+	// Handle signals for clean shutdown
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		<-c
+		fmt.Println("\n→ Stopping cipher-shield proxy...")
+		proxyctl.RestoreNPM()
+		proxyctl.RestorePIP()
+		proxyctl.RemovePID()
+		fmt.Println("✓ npm and pip config restored")
+		fmt.Println("✓ cipher-shield proxy stopped")
+		os.Exit(0)
+	}()
+
+	fmt.Printf("\n✓ cipher-shield proxy running on %s\n", addr)
+	fmt.Println("  All npm install and pip install commands are now screened.")
+	fmt.Println("  Press Ctrl+C to stop and restore original settings.\n")
+
+	proxyCfg := proxy.Config{
+		ListenAddr: addr,
+		Mode:       proxy.Mode(envOr("SHIELD_MODE", "enforce")),
+		Pipeline:   pl,
+	}
+	if err := proxy.New(proxyCfg).Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "proxy error: %v\n", err)
+		proxyctl.RestoreNPM()
+		proxyctl.RestorePIP()
+		proxyctl.RemovePID()
+		os.Exit(1)
+	}
+}
+
+func proxyStop() {
+	pid := proxyctl.ReadPID()
+	if pid == 0 {
+		fmt.Println("cipher-shield proxy is not running")
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		fmt.Printf("could not find process %d: %v\n", pid, err)
+		proxyctl.RemovePID()
+		return
+	}
+	proc.Signal(syscall.SIGTERM)
+	fmt.Printf("→ Sent SIGTERM to proxy (pid %d)\n", pid)
+	proxyctl.RestoreNPM()
+	proxyctl.RestorePIP()
+	proxyctl.RemovePID()
+	fmt.Println("✓ cipher-shield proxy stopped")
+}
+
 func printUsage() {
 	fmt.Fprint(os.Stderr, `cipher-shield — AI-powered package security firewall
 
@@ -232,11 +338,15 @@ Usage:
   cipher-shield scan lockfile <path>              Scan a lock file (package-lock.json, requirements.txt, etc.)
   cipher-shield scan package <name@version>       Scan a single package
     [--ecosystem npm|pypi]                        (default: npm)
+  cipher-shield proxy start [--addr 127.0.0.1:7070]  Start proxy (configures npm + pip automatically)
+  cipher-shield proxy stop                            Stop proxy (restores npm + pip config)
+  cipher-shield proxy status                          Show proxy status
   cipher-shield version                           Print version
 
 Environment:
   ANTHROPIC_API_KEY    Enable Claude Opus deep analysis
   SHIELD_MODE          enforce (default) | warn | audit
+  SHIELD_PROXY_ADDR    Proxy listen address (default: 127.0.0.1:7070)
   SHIELD_DB_PATH       SQLite cache path (default: ~/.cipher-shield/shield.db)
 
 Exit codes:

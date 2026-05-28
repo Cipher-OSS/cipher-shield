@@ -1,0 +1,50 @@
+version: "3.9"
+
+# cipher-shield team server
+# Usage: docker compose up -d
+#
+# Required env vars:
+#   SHIELD_JWT_SECRET      — random 32+ byte string
+#   ANTHROPIC_API_KEY      — Anthropic API key (optional, enables Claude analysis)
+#
+# Optional:
+#   SHIELD_MODE            — enforce (default) | warn | audit
+
+services:
+  shield:
+    image: ghcr.io/homes853/cipher-shield:latest
+    restart: unless-stopped
+    ports:
+      - "7070:7070"   # Registry proxy (point npm/pip here)
+      - "8080:8080"   # Dashboard + API
+    environment:
+      - SHIELD_JWT_SECRET=${SHIELD_JWT_SECRET}
+      - SHIELD_MODE=${SHIELD_MODE:-enforce}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DATABASE_URL=postgres://shield:${DB_PASSWORD}@postgres:5432/shield?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=shield
+      - POSTGRES_USER=shield
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shield"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
