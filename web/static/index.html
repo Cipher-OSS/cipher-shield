@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cipher Shield</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f172a;
+    --surface:   #1e293b;
+    --border:    #334155;
+    --text:      #f1f5f9;
+    --muted:     #94a3b8;
+    --accent:    #6366f1;
+    --accent-h:  #818cf8;
+    --red:       #ef4444;
+    --amber:     #f59e0b;
+    --green:     #22c55e;
+    --sidebar-w: 220px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Login ── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg);
+  }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 36px;
+    width: 380px;
+  }
+
+  .login-card .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .login-card .logo svg { flex-shrink: 0; }
+
+  .login-card h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .login-card .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+
+  .field { margin-bottom: 16px; }
+
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .field select option { background: var(--surface); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled) { opacity: 0.85; }
+
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+  .btn-block { width: 100%; }
+
+  .error-msg {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 8px;
+    color: #fca5a5;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  /* ── App layout ── */
+  #app { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 10;
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-logo span {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .sidebar-logo .badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--accent);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .nav-section {
+    padding: 16px 10px;
+    flex: 1;
+  }
+
+  .nav-section label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 0 8px;
+    margin-bottom: 6px;
+  }
+
+  .nav-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    font-weight: 500;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 14px;
+    font-family: inherit;
+    transition: background 0.12s, color 0.12s;
+    margin-bottom: 2px;
+  }
+
+  .nav-pill:hover { background: rgba(99,102,241,0.1); color: var(--text); }
+  .nav-pill.active { background: rgba(99,102,241,0.18); color: var(--accent-h); }
+
+  .nav-pill svg { flex-shrink: 0; }
+
+  .sidebar-footer {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .health-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+  }
+
+  .health-dot.offline { background: var(--red); }
+
+  .sidebar-footer .health-label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Main content */
+  .main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .topbar h2 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .topbar .logout-btn {
+    font-size: 12px;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .topbar .logout-btn:hover { color: var(--text); border-color: var(--muted); }
+
+  .content { padding: 28px; flex: 1; }
+
+  /* Views */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* Summary cards */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .card .card-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+  }
+
+  .card .card-value {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+
+  .card.card-blocked .card-value { color: var(--red); }
+  .card.card-warn .card-value    { color: var(--amber); }
+  .card.card-clean .card-value   { color: var(--green); }
+
+  /* Tables */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .table-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .table-header h3 {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 11px 20px;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .empty-row td {
+    text-align: center;
+    color: var(--muted);
+    padding: 32px;
+  }
+  .empty-row:hover td { background: none; }
+
+  /* Scan view */
+  .scan-form-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 520px;
+    margin-bottom: 24px;
+  }
+
+  .scan-form-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 18px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .scan-result {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 640px;
+  }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .result-pkg {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .result-pkg span {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+
+  .findings-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .finding-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+
+  .finding-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .finding-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* Exceptions modal overlay */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    display: none;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 440px;
+    max-width: 95vw;
+  }
+
+  .modal h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+  }
+
+  /* Misc */
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+
+  .mono {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="#6366f1"/>
+        <path d="M14 6L7 10v5c0 4.08 2.99 7.9 7 8.93C18.01 22.9 21 19.08 21 15v-5l-7-4z" fill="white" fill-opacity="0.9"/>
+        <path d="M11.5 14l1.8 1.8 3.2-3.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h1>Cipher Shield</h1>
+    </div>
+    <p class="subtitle">Sign in to access the security dashboard</p>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')login()">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="login()" id="login-btn">Sign In</button>
+    <div class="error-msg" id="login-error"></div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app" style="display:none">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="#6366f1"/>
+        <path d="M14 6L7 10v5c0 4.08 2.99 7.9 7 8.93C18.01 22.9 21 19.08 21 15v-5l-7-4z" fill="white" fill-opacity="0.9"/>
+        <path d="M11.5 14l1.8 1.8 3.2-3.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Cipher Shield</span>
+      <span class="badge">OSS</span>
+    </div>
+    <nav class="nav-section">
+      <label>Navigation</label>
+      <button class="nav-pill active" onclick="showView('dashboard')" id="nav-dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        Dashboard
+      </button>
+      <button class="nav-pill" onclick="showView('scan')" id="nav-scan">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Scan Package
+      </button>
+      <button class="nav-pill" onclick="showView('exceptions')" id="nav-exceptions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+        </svg>
+        Exceptions
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="health-label">
+        <span class="health-dot" id="health-dot"></span>
+        <span id="health-label-text">Checking...</span>
+      </span>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    <div class="topbar">
+      <h2 id="view-title">Dashboard</h2>
+      <button class="logout-btn" onclick="logout()" id="logout-btn" style="display:none">Sign Out</button>
+    </div>
+    <div class="content">
+
+      <!-- Dashboard View -->
+      <div class="view active" id="view-dashboard">
+        <div class="cards-grid">
+          <div class="card">
+            <div class="card-label">Scans Today</div>
+            <div class="card-value" id="stat-total">—</div>
+          </div>
+          <div class="card card-blocked">
+            <div class="card-label">Blocked</div>
+            <div class="card-value" id="stat-blocked">—</div>
+          </div>
+          <div class="card card-warn">
+            <div class="card-label">Warnings</div>
+            <div class="card-value" id="stat-warn">—</div>
+          </div>
+          <div class="card card-clean">
+            <div class="card-label">Clean</div>
+            <div class="card-value" id="stat-clean">—</div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Recent Scan History</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadHistory()">Refresh</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Verdict</th>
+                <th>Findings</th>
+                <th>Scanned</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <tr class="empty-row"><td colspan="6">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Scan View -->
+      <div class="view" id="view-scan">
+        <div class="scan-form-card">
+          <h3>Scan a Package</h3>
+          <div class="field">
+            <label>Ecosystem</label>
+            <select id="scan-ecosystem">
+              <option value="npm">npm</option>
+              <option value="pypi">PyPI</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Package Name</label>
+              <input type="text" id="scan-name" placeholder="e.g. lodash"
+                onkeydown="if(event.key==='Enter')scanPackage()">
+            </div>
+            <div class="field">
+              <label>Version</label>
+              <input type="text" id="scan-version" placeholder="e.g. 4.17.21"
+                onkeydown="if(event.key==='Enter')scanPackage()">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="scanPackage()" id="scan-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Run Scan
+          </button>
+        </div>
+        <div id="scan-result" style="display:none"></div>
+      </div>
+
+      <!-- Exceptions View -->
+      <div class="view" id="view-exceptions">
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Approved Exceptions</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddException()">+ Add Exception</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Reason</th>
+                <th>Added</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="exceptions-tbody">
+              <tr class="empty-row"><td colspan="6">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Add Exception Modal -->
+<div class="modal-overlay" id="exception-modal">
+  <div class="modal">
+    <h3>Add Exception</h3>
+    <div class="field">
+      <label>Ecosystem</label>
+      <select id="exc-ecosystem">
+        <option value="npm">npm</option>
+        <option value="pypi">PyPI</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Package Name</label>
+      <input type="text" id="exc-name" placeholder="e.g. left-pad">
+    </div>
+    <div class="field">
+      <label>Version <span style="color:var(--muted);font-weight:400;text-transform:none">(optional — leave blank for all versions)</span></label>
+      <input type="text" id="exc-version" placeholder="e.g. 1.0.0">
+    </div>
+    <div class="field">
+      <label>Reason</label>
+      <textarea id="exc-reason" rows="3" placeholder="Why is this package approved despite findings?" style="resize:vertical"></textarea>
+    </div>
+    <div class="error-msg" id="exc-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeAddException()">Cancel</button>
+      <button class="btn btn-primary" onclick="addException()" id="exc-submit-btn">Add Exception</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const TOKEN_KEY = 'cipher_shield_token';
+let authRequired = false;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+function verdictBadge(v) {
+  const colors = { block: '#ef4444', warn: '#f59e0b', allow: '#22c55e' };
+  return `<span style="background:${colors[v] || '#6b7280'};color:white;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">${(v || 'unknown').toUpperCase()}</span>`;
+}
+
+function severityBadge(s) {
+  const map = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#3b82f6', info: '#6b7280' };
+  const color = map[(s || '').toLowerCase()] || '#6b7280';
+  return `<span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700">${(s || 'INFO').toUpperCase()}</span>`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (isNaN(d)) return ts;
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function setLoading(btnId, loading, text) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  if (text) btn.textContent = loading ? 'Loading…' : text;
+}
+
+// ── API layer ───────────────────────────────────────────────────────────────
+
+async function apiFetch(path, opts = {}) {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(path, { ...opts, headers });
+
+  if (res.status === 401 && authRequired) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    showLogin();
+    throw new Error('Unauthorized');
+  }
+
+  return res;
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+
+async function boot() {
+  let healthy = false;
+  try {
+    const res = await fetch('/api/v1/health');
+    healthy = res.ok;
+
+    if (res.status === 401) {
+      authRequired = true;
+    }
+  } catch (_) {
+    healthy = false;
+  }
+
+  updateHealthIndicator(healthy);
+
+  const token = sessionStorage.getItem(TOKEN_KEY);
+
+  if (!healthy) {
+    // Still show the app in degraded state
+    showApp(!!token);
+    return;
+  }
+
+  // Probe whether auth is required by checking health without a token
+  // If we get 401 on any endpoint, auth is required
+  if (!token) {
+    // Try a lightweight authed endpoint to see if auth is enforced
+    try {
+      const probe = await fetch('/api/v1/history', { headers: { 'Content-Type': 'application/json' } });
+      if (probe.status === 401) {
+        authRequired = true;
+        showLogin();
+        return;
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  if (authRequired && !token) {
+    showLogin();
+    return;
+  }
+
+  showApp(!!token);
+}
+
+function updateHealthIndicator(healthy) {
+  const dot = document.getElementById('health-dot');
+  const lbl = document.getElementById('health-label-text');
+  if (dot) dot.className = 'health-dot' + (healthy ? '' : ' offline');
+  if (lbl) lbl.textContent = healthy ? 'API online' : 'API offline';
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+function showApp(hasToken) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('logout-btn').style.display = hasToken ? 'inline-flex' : 'none';
+  showView('dashboard');
+  loadHistory();
+}
+
+async function login() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('login-btn', true, 'Sign In');
+  try {
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || data.message || 'Invalid credentials.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const token = data.token || data.access_token || data.jwt;
+    if (!token) {
+      errEl.textContent = 'Login succeeded but no token returned.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    sessionStorage.setItem(TOKEN_KEY, token);
+    showApp(true);
+  } catch (e) {
+    errEl.textContent = 'Network error — check that the server is running.';
+    errEl.style.display = 'block';
+  } finally {
+    setLoading('login-btn', false, 'Sign In');
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  if (authRequired) {
+    showLogin();
+  } else {
+    document.getElementById('logout-btn').style.display = 'none';
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+const VIEW_TITLES = { dashboard: 'Dashboard', scan: 'Scan Package', exceptions: 'Exceptions' };
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-pill').forEach(p => p.classList.remove('active'));
+
+  const viewEl = document.getElementById('view-' + name);
+  const navEl  = document.getElementById('nav-' + name);
+  if (viewEl) viewEl.classList.add('active');
+  if (navEl)  navEl.classList.add('active');
+
+  const titleEl = document.getElementById('view-title');
+  if (titleEl) titleEl.textContent = VIEW_TITLES[name] || name;
+
+  if (name === 'dashboard')  loadHistory();
+  if (name === 'exceptions') loadExceptions();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+async function loadHistory() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/history');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const items = Array.isArray(data) ? data : (data.history || data.results || data.items || []);
+
+    // Compute today stats
+    const today = new Date().toDateString();
+    const todayItems = items.filter(i => new Date(i.scanned_at || i.created_at || i.timestamp || 0).toDateString() === today);
+    const counts = todayItems.reduce((acc, i) => {
+      const v = (i.verdict || i.result || '').toLowerCase();
+      acc.total++;
+      acc[v] = (acc[v] || 0) + 1;
+      return acc;
+    }, { total: 0, block: 0, warn: 0, allow: 0 });
+
+    document.getElementById('stat-total').textContent   = counts.total;
+    document.getElementById('stat-blocked').textContent = counts.block;
+    document.getElementById('stat-warn').textContent    = counts.warn;
+    document.getElementById('stat-clean').textContent   = counts.allow;
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No scan history yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.slice(0, 50).map(i => {
+      const verdict  = (i.verdict || i.result || 'unknown').toLowerCase();
+      const pkg      = i.package || i.name || '—';
+      const eco      = i.ecosystem || '—';
+      const ver      = i.version || '—';
+      const findings = (i.findings || i.issues || []).length;
+      const ts       = fmtDate(i.scanned_at || i.created_at || i.timestamp);
+      return `<tr>
+        <td class="mono">${pkg}</td>
+        <td>${eco}</td>
+        <td class="mono">${ver}</td>
+        <td>${verdictBadge(verdict)}</td>
+        <td>${findings > 0 ? `<span style="color:var(--amber)">${findings}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+        <td style="color:var(--muted)">${ts}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="color:var(--red)">Failed to load history.</td></tr>';
+      document.getElementById('stat-total').textContent   = '—';
+      document.getElementById('stat-blocked').textContent = '—';
+      document.getElementById('stat-warn').textContent    = '—';
+      document.getElementById('stat-clean').textContent   = '—';
+    }
+  }
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+
+async function scanPackage() {
+  const ecosystem = document.getElementById('scan-ecosystem').value;
+  const name      = document.getElementById('scan-name').value.trim();
+  const version   = document.getElementById('scan-version').value.trim();
+  const resultEl  = document.getElementById('scan-result');
+
+  if (!name) {
+    document.getElementById('scan-name').focus();
+    return;
+  }
+
+  setLoading('scan-btn', true, 'Run Scan');
+  resultEl.style.display = 'none';
+
+  try {
+    const body = { ecosystem, name };
+    if (version) body.version = version;
+
+    const res = await apiFetch('/api/v1/scan/package', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="scan-result" style="border-color:var(--red)">
+        <p style="color:var(--red)">${data.error || data.message || `Scan failed (HTTP ${res.status})`}</p>
+      </div>`;
+      return;
+    }
+
+    renderScanResult(data, name, version, ecosystem, resultEl);
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="scan-result" style="border-color:var(--red)">
+        <p style="color:var(--red)">Network error — could not reach the API.</p>
+      </div>`;
+    }
+  } finally {
+    setLoading('scan-btn', false, 'Run Scan');
+    document.getElementById('scan-btn').textContent = '';
+    const scanBtn = document.getElementById('scan-btn');
+    scanBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Run Scan`;
+    scanBtn.disabled = false;
+  }
+}
+
+function renderScanResult(data, name, version, ecosystem, container) {
+  const verdict  = (data.verdict || data.result || 'unknown').toLowerCase();
+  const findings = data.findings || data.issues || data.vulnerabilities || [];
+  const verdictColor = { block: 'var(--red)', warn: 'var(--amber)', allow: 'var(--green)' }[verdict] || 'var(--muted)';
+
+  const findingsHtml = findings.length === 0
+    ? '<p style="color:var(--muted);font-size:13px">No findings.</p>'
+    : `<div class="findings-list">${findings.map(f => {
+        const sev   = f.severity || f.level || 'info';
+        const title = f.title || f.name || f.id || 'Finding';
+        const desc  = f.description || f.message || f.detail || '';
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(sev)} ${title}</div>
+          ${desc ? `<div class="finding-desc">${desc}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+
+  container.style.display = 'block';
+  container.innerHTML = `<div class="scan-result" style="border-color:${verdictColor}">
+    <div class="result-header">
+      <div class="result-pkg">${name}<span>${version ? '@' + version : ''} · ${ecosystem}</span></div>
+      ${verdictBadge(verdict)}
+    </div>
+    <p class="section-title" style="font-size:13px;margin-bottom:12px">Findings (${findings.length})</p>
+    ${findingsHtml}
+  </div>`;
+}
+
+// ── Exceptions ────────────────────────────────────────────────────────────────
+
+async function loadExceptions() {
+  const tbody = document.getElementById('exceptions-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/exceptions');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const items = Array.isArray(data) ? data : (data.exceptions || data.items || []);
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No exceptions defined.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const id      = item.id || item._id || '';
+      const pkg     = item.package || item.name || '—';
+      const eco     = item.ecosystem || '—';
+      const ver     = item.version || '<span style="color:var(--muted)">all</span>';
+      const reason  = item.reason || '<span style="color:var(--muted)">—</span>';
+      const ts      = fmtDate(item.created_at || item.added_at || item.timestamp);
+      return `<tr>
+        <td class="mono">${pkg}</td>
+        <td>${eco}</td>
+        <td class="mono">${ver}</td>
+        <td style="max-width:280px;color:var(--muted);font-size:13px">${reason}</td>
+        <td style="color:var(--muted)">${ts}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteException('${id}')">Remove</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="color:var(--red)">Failed to load exceptions.</td></tr>';
+    }
+  }
+}
+
+function openAddException() {
+  document.getElementById('exc-name').value    = '';
+  document.getElementById('exc-version').value = '';
+  document.getElementById('exc-reason').value  = '';
+  document.getElementById('exc-error').style.display = 'none';
+  document.getElementById('exception-modal').classList.add('open');
+  setTimeout(() => document.getElementById('exc-name').focus(), 60);
+}
+
+function closeAddException() {
+  document.getElementById('exception-modal').classList.remove('open');
+}
+
+async function addException() {
+  const ecosystem = document.getElementById('exc-ecosystem').value;
+  const name      = document.getElementById('exc-name').value.trim();
+  const version   = document.getElementById('exc-version').value.trim();
+  const reason    = document.getElementById('exc-reason').value.trim();
+  const errEl     = document.getElementById('exc-error');
+
+  errEl.style.display = 'none';
+
+  if (!name) {
+    errEl.textContent = 'Package name is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('exc-submit-btn', true, 'Add Exception');
+  try {
+    const body = { ecosystem, name, reason };
+    if (version) body.version = version;
+
+    const res = await apiFetch('/api/v1/exceptions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || data.message || `Failed (HTTP ${res.status})`;
+      errEl.style.display = 'block';
+      return;
+    }
+
+    closeAddException();
+    loadExceptions();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      errEl.textContent = 'Network error — could not reach the API.';
+      errEl.style.display = 'block';
+    }
+  } finally {
+    setLoading('exc-submit-btn', false, 'Add Exception');
+  }
+}
+
+async function deleteException(id) {
+  if (!id) return;
+  if (!confirm('Remove this exception?')) return;
+
+  try {
+    const res = await apiFetch(`/api/v1/exceptions/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || data.message || `Delete failed (HTTP ${res.status})`);
+      return;
+    }
+    loadExceptions();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      alert('Network error — could not reach the API.');
+    }
+  }
+}
+
+// ── Modal close on backdrop click ────────────────────────────────────────────
+
+document.getElementById('exception-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeAddException();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
