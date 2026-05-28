@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -158,22 +161,39 @@ func scanPackage(pl *pipeline.Pipeline, args []string) {
 		}
 	}
 
-	// Parse name@version
+	// Parse name@version — LastIndex handles scoped packages like @scope/name@1.0.0
 	name, version := nameVersion, "latest"
 	if idx := strings.LastIndex(nameVersion, "@"); idx > 0 {
 		name = nameVersion[:idx]
 		version = nameVersion[idx+1:]
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	fmt.Printf("Scanning %s@%s (%s)...\n\n", name, version, eco)
-	result, err := pl.Analyze(ctx, shield.PackageRef{
-		Ecosystem: eco,
-		Name:      name,
-		Version:   version,
-	}, nil)
+	// Resolve "latest" to a real version before fetching the tarball
+	if version == "latest" {
+		if resolved, err := resolveLatestVersion(ctx, eco, name); err == nil {
+			version = resolved
+			fmt.Printf("Resolved %s@latest → %s\n\n", name, version)
+		}
+	}
+
+	pkg := shield.PackageRef{Ecosystem: eco, Name: name, Version: version}
+	fmt.Printf("Scanning %s@%s (%s)...\n", name, version, eco)
+
+	// Fetch the tarball so tiers 3 (heuristic) and 4 (Claude) can run
+	fmt.Printf("  Fetching tarball... ")
+	tarball, fetchErr := fetchTarball(ctx, pkg)
+	if fetchErr != nil {
+		fmt.Printf("skipped (%v)\n", fetchErr)
+		fmt.Println("  Note: heuristic and Claude analysis unavailable without tarball")
+	} else {
+		fmt.Printf("%d KB\n", len(tarball)/1024)
+	}
+	fmt.Println()
+
+	result, err := pl.Analyze(ctx, pkg, tarball)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -188,6 +208,147 @@ func scanPackage(pl *pipeline.Pipeline, args []string) {
 	if result.Verdict == shield.VerdictWarn {
 		os.Exit(1)
 	}
+}
+
+// fetchTarball downloads the package tarball from the upstream registry.
+// npm:  https://registry.npmjs.org/{name}/-/{bareName}-{version}.tgz
+// PyPI: resolves download URL via the JSON metadata API, prefers sdist.
+func fetchTarball(ctx context.Context, pkg shield.PackageRef) ([]byte, error) {
+	var tarURL string
+
+	switch pkg.Ecosystem {
+	case shield.EcosystemNPM:
+		// Scoped packages (@scope/name) use just the bare name in the filename.
+		bareName := pkg.Name
+		if strings.HasPrefix(pkg.Name, "@") {
+			if parts := strings.SplitN(pkg.Name[1:], "/", 2); len(parts) == 2 {
+				bareName = parts[1]
+			}
+		}
+		tarURL = fmt.Sprintf("https://registry.npmjs.org/%s/-/%s-%s.tgz",
+			pkg.Name, bareName, pkg.Version)
+
+	case shield.EcosystemPyPI:
+		var err error
+		tarURL, err = resolvePyPITarball(ctx, pkg.Name, pkg.Version)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported ecosystem: %s", pkg.Ecosystem)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "cipher-shield/0.1.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", tarURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("registry returned HTTP %d for %s", resp.StatusCode, tarURL)
+	}
+
+	const maxBytes = 50 << 20 // 50 MB
+	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+}
+
+// resolvePyPITarball queries the PyPI JSON API and returns the sdist download URL.
+func resolvePyPITarball(ctx context.Context, name, version string) (string, error) {
+	apiURL := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", name, version)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("pypi metadata: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("pypi metadata: HTTP %d", resp.StatusCode)
+	}
+
+	var meta struct {
+		URLs []struct {
+			URL         string `json:"url"`
+			PackageType string `json:"packagetype"`
+		} `json:"urls"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return "", fmt.Errorf("pypi metadata decode: %w", err)
+	}
+
+	// Prefer sdist (source); fall back to any wheel if unavailable.
+	var wheel string
+	for _, u := range meta.URLs {
+		switch u.PackageType {
+		case "sdist":
+			return u.URL, nil
+		case "bdist_wheel":
+			if wheel == "" {
+				wheel = u.URL
+			}
+		}
+	}
+	if wheel != "" {
+		return wheel, nil
+	}
+	return "", fmt.Errorf("no downloadable file found for %s@%s on PyPI", name, version)
+}
+
+// resolveLatestVersion fetches the current latest version for a package.
+func resolveLatestVersion(ctx context.Context, eco shield.Ecosystem, name string) (string, error) {
+	var apiURL string
+	switch eco {
+	case shield.EcosystemNPM:
+		apiURL = fmt.Sprintf("https://registry.npmjs.org/%s/latest", name)
+	case shield.EcosystemPyPI:
+		apiURL = fmt.Sprintf("https://pypi.org/pypi/%s/json", name)
+	default:
+		return "", fmt.Errorf("unsupported ecosystem")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return "", err
+	}
+
+	switch eco {
+	case shield.EcosystemNPM:
+		var v string
+		json.Unmarshal(raw["version"], &v)
+		if v == "" {
+			return "", fmt.Errorf("version field missing in npm response")
+		}
+		return v, nil
+	case shield.EcosystemPyPI:
+		var info map[string]json.RawMessage
+		json.Unmarshal(raw["info"], &info)
+		var v string
+		json.Unmarshal(info["version"], &v)
+		if v == "" {
+			return "", fmt.Errorf("info.version field missing in PyPI response")
+		}
+		return v, nil
+	}
+	return "", fmt.Errorf("could not resolve version")
 }
 
 func printResult(r *shield.ScanResult) {

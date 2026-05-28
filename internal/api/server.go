@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	shield "github.com/homes853/cipher-shield/internal"
 	"github.com/homes853/cipher-shield/internal/db"
+	shieldweb "github.com/homes853/cipher-shield/web"
 )
 
 // Scanner is the minimal interface the API needs from the pipeline.
@@ -65,8 +67,9 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/v1/exceptions", s.requireUser(s.handleAddException)).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/exceptions/{id}", s.requireUser(s.handleDeleteException)).Methods("DELETE", "OPTIONS")
 
-	// Static dashboard
-	s.router.PathPrefix("/").Handler(http.FileServer(http.Dir("./web/static/")))
+	// Static dashboard — embedded at build time, no filesystem dependency
+	staticFS, _ := fs.Sub(shieldweb.Static, "static")
+	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(staticFS)))
 }
 
 // GET /api/v1/health

@@ -6,10 +6,19 @@ on:
 
 jobs:
   build:
-    name: Build and release
-    runs-on: ubuntu-latest
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64, runs-on: ubuntu-latest,  cc: "" }
+          - { goos: linux,   goarch: arm64, runs-on: ubuntu-latest,  cc: aarch64-linux-gnu-gcc }
+          - { goos: darwin,  goarch: amd64, runs-on: macos-latest,   cc: "" }
+          - { goos: darwin,  goarch: arm64, runs-on: macos-latest,   cc: "" }
+          - { goos: windows, goarch: amd64, runs-on: ubuntu-latest,  cc: x86_64-w64-mingw32-gcc }
+
     steps:
       - uses: actions/checkout@v4
 
@@ -17,19 +26,56 @@ jobs:
         with:
           go-version: "1.22"
 
+      - name: Install cross-compilers (Linux runner only)
+        if: matrix.runs-on == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          pkgs=""
+          [ "${{ matrix.goarch }}" = "arm64" ] && pkgs="$pkgs gcc-aarch64-linux-gnu"
+          [ "${{ matrix.goos }}" = "windows" ] && pkgs="$pkgs mingw-w64"
+          [ -n "$pkgs" ] && sudo apt-get install -y $pkgs
+
       - name: Build binaries
+        env:
+          GOOS:        ${{ matrix.goos }}
+          GOARCH:      ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC:          ${{ matrix.cc }}
         run: |
           mkdir -p dist
-          GOOS=linux   GOARCH=amd64 go build -o dist/cipher-shield-linux-amd64   ./cmd/shield/
-          GOOS=linux   GOARCH=arm64 go build -o dist/cipher-shield-linux-arm64   ./cmd/shield/
-          GOOS=darwin  GOARCH=amd64 go build -o dist/cipher-shield-darwin-amd64  ./cmd/shield/
-          GOOS=darwin  GOARCH=arm64 go build -o dist/cipher-shield-darwin-arm64  ./cmd/shield/
-          GOOS=windows GOARCH=amd64 go build -o dist/cipher-shield-windows-amd64.exe ./cmd/shield/
-          GOOS=linux   GOARCH=amd64 go build -o dist/shield-server-linux-amd64   ./cmd/server/
-          GOOS=linux   GOARCH=arm64 go build -o dist/shield-server-linux-arm64   ./cmd/server/
+          ext=""
+          [ "${{ matrix.goos }}" = "windows" ] && ext=".exe"
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+          go build -ldflags="-s -w" \
+            -o dist/cipher-shield-${{ matrix.goos }}-${{ matrix.goarch }}${ext} \
+            ./cmd/shield/
+
+          # Server binary: Linux only (runs in Docker on other platforms)
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            go build -ldflags="-s -w" \
+              -o dist/shield-server-${{ matrix.goos }}-${{ matrix.goarch }} \
+              ./cmd/server/
+          fi
+
+      - uses: actions/upload-artifact@v4
         with:
-          files: dist/*
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
           generate_release_notes: true
