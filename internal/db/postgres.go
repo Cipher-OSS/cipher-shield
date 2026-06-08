@@ -64,11 +64,56 @@ CREATE TABLE IF NOT EXISTS scan_history (
     result_json TEXT NOT NULL,
     scanned_at  TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id       TEXT PRIMARY KEY,
+    email         TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'analyst',
+    created_at    TIMESTAMPTZ NOT NULL
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrate DDL: %w", err)
 	}
 	return nil
+}
+
+func (s *postgresStore) CreateUser(email, passwordHash, role string) (*shield.User, error) {
+	id := newUserID()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO users (user_id, email, password_hash, role, created_at) VALUES ($1, $2, $3, $4, $5)`,
+		id, email, passwordHash, role, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("CreateUser: %w", err)
+	}
+	return &shield.User{UserID: id, Email: email, PasswordHash: passwordHash, Role: role, CreatedAt: now}, nil
+}
+
+func (s *postgresStore) GetUserByEmail(email string) (*shield.User, error) {
+	row := s.db.QueryRow(
+		`SELECT user_id, email, password_hash, role, created_at FROM users WHERE email = $1`, email,
+	)
+	return scanUserRow(row)
+}
+
+func (s *postgresStore) CountUsers() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (s *postgresStore) ListUsers() ([]shield.User, error) {
+	rows, err := s.db.Query(
+		`SELECT user_id, email, password_hash, role, created_at FROM users ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListUsers query: %w", err)
+	}
+	defer rows.Close()
+	return scanUserRows(rows)
 }
 
 func (s *postgresStore) Close() error { return s.db.Close() }

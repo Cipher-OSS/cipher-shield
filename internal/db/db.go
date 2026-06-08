@@ -1,8 +1,10 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
 
+	"github.com/google/uuid"
 	shield "github.com/homes853/cipher-shield/internal"
 )
 
@@ -21,8 +23,40 @@ type Store interface {
 	// Scan history (recent scans for dashboard)
 	ListHistory(limit int) ([]shield.ScanResult, error)
 
+	// Users
+	CreateUser(email, passwordHash, role string) (*shield.User, error)
+	GetUserByEmail(email string) (*shield.User, error)
+	CountUsers() (int, error)
+	ListUsers() ([]shield.User, error)
+
 	Migrate() error
 	Close() error
+}
+
+func newUserID() string { return uuid.New().String() }
+
+func scanUserRow(row *sql.Row) (*shield.User, error) {
+	var u shield.User
+	err := row.Scan(&u.UserID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scanUser: %w", err)
+	}
+	return &u, nil
+}
+
+func scanUserRows(rows *sql.Rows) ([]shield.User, error) {
+	var out []shield.User
+	for rows.Next() {
+		var u shield.User
+		if err := rows.Scan(&u.UserID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanUserRows: %w", err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 // Open returns a Store for the given driver ("sqlite3" or "postgres") and DSN.

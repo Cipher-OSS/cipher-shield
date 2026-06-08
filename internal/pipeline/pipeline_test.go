@@ -59,12 +59,16 @@ func (m *memStore) GetException(eco shield.Ecosystem, name, version string) (*sh
 	return nil, nil
 }
 
-func (m *memStore) ListExceptions() ([]shield.Exception, error)  { return nil, nil }
-func (m *memStore) AddException(e shield.Exception) error        { return nil }
-func (m *memStore) DeleteException(_ string) error               { return nil }
-func (m *memStore) ListHistory(_ int) ([]shield.ScanResult, error) { return nil, nil }
-func (m *memStore) Migrate() error                               { return nil }
-func (m *memStore) Close() error                                 { return nil }
+func (m *memStore) ListExceptions() ([]shield.Exception, error)              { return nil, nil }
+func (m *memStore) AddException(e shield.Exception) error                    { return nil }
+func (m *memStore) DeleteException(_ string) error                           { return nil }
+func (m *memStore) ListHistory(_ int) ([]shield.ScanResult, error)           { return nil, nil }
+func (m *memStore) CreateUser(_, _, _ string) (*shield.User, error)          { return nil, nil }
+func (m *memStore) GetUserByEmail(_ string) (*shield.User, error)            { return nil, nil }
+func (m *memStore) CountUsers() (int, error)                                 { return 0, nil }
+func (m *memStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
+func (m *memStore) Migrate() error                                           { return nil }
+func (m *memStore) Close() error                                             { return nil }
 
 // stubAnalyzer returns preconfigured findings. Tracks call count atomically.
 type stubAnalyzer struct {

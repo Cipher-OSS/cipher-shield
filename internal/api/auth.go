@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type contextKey int
@@ -51,7 +53,36 @@ func (s *Server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// POST /api/v1/auth/login — simple email/password login (checks against env-var admin creds for now)
+// requireAdmin wraps requireUser and additionally enforces role == "admin".
+func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
+		claims := claimsFromCtx(r)
+		if claims == nil || claims.Role != "admin" {
+			jsonError(w, "admin access required", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// requireAdminOrBootstrap allows unauthenticated access only when the users
+// table is empty (first-run bootstrap). Once any user exists, admin is required.
+func (s *Server) requireAdminOrBootstrap(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		count, err := s.store.CountUsers()
+		if err != nil {
+			jsonError(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		if count == 0 {
+			next(w, r)
+			return
+		}
+		s.requireAdmin(next)(w, r)
+	}
+}
+
+// POST /api/v1/auth/login
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if len(s.jwtSecret) == 0 {
 		jsonError(w, "JWT auth not configured — set SHIELD_JWT_SECRET", http.StatusServiceUnavailable)
@@ -61,20 +92,27 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
 		jsonError(w, "email and password required", http.StatusBadRequest)
 		return
 	}
-	// TODO: replace with DB user lookup once user table is added
-	// For now: accept any non-empty password in dev; prod should set SHIELD_ADMIN_EMAIL + SHIELD_ADMIN_PASSWORD
-	token, err := issueToken(req.Email, "admin", s.jwtSecret)
+	user, err := s.store.GetUserByEmail(req.Email)
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+		jsonError(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	token, err := issueToken(user.UserID, user.Email, user.Role, s.jwtSecret)
 	if err != nil {
 		jsonError(w, "token error", http.StatusInternalServerError)
 		return
 	}
 	jsonOK(w, map[string]interface{}{
 		"token": token,
-		"user":  map[string]string{"email": req.Email, "role": "admin"},
+		"user":  map[string]string{"user_id": user.UserID, "email": user.Email, "role": user.Role},
 	})
 }
 
@@ -89,10 +127,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // issueToken creates a signed HS256 JWT with 24h expiry.
-func issueToken(email, role string, secret []byte) (string, error) {
+func issueToken(userID, email, role string, secret []byte) (string, error) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	payload, _ := json.Marshal(map[string]interface{}{
-		"sub":   email,
+		"sub":   userID,
 		"email": email,
 		"role":  role,
 		"iat":   time.Now().Unix(),

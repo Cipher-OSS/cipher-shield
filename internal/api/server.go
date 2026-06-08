@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -12,7 +13,9 @@ import (
 	"github.com/gorilla/mux"
 	shield "github.com/homes853/cipher-shield/internal"
 	"github.com/homes853/cipher-shield/internal/db"
+	"github.com/homes853/cipher-shield/internal/lockfile"
 	shieldweb "github.com/homes853/cipher-shield/web"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Scanner is the minimal interface the API needs from the pipeline.
@@ -54,6 +57,10 @@ func (s *Server) routes() {
 	// Auth
 	s.router.HandleFunc("/api/v1/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/auth/me", s.requireUser(s.handleMe)).Methods("GET", "OPTIONS")
+
+	// Users (admin or bootstrap)
+	s.router.HandleFunc("/api/v1/users", s.requireAdmin(s.handleListUsers)).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/users", s.requireAdminOrBootstrap(s.handleCreateUser)).Methods("POST", "OPTIONS")
 
 	// Scan
 	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.handleScanPackage)).Methods("POST", "OPTIONS")
@@ -108,9 +115,75 @@ func (s *Server) handleScanPackage(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, result)
 }
 
-// POST /api/v1/scan/lockfile — accepts lock file content as text body
+// POST /api/v1/scan/lockfile
+// Accepts multipart/form-data with field "file" (filename used for format detection)
+// or a raw body with ?filename=<name> query param.
 func (s *Server) handleScanLockfile(w http.ResponseWriter, r *http.Request) {
-	jsonError(w, "lockfile scan via API: upload the file content as multipart or use the CLI", http.StatusNotImplemented)
+	var data []byte
+	var filename string
+
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/") {
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			jsonError(w, "multipart parse error", http.StatusBadRequest)
+			return
+		}
+		f, fh, err := r.FormFile("file")
+		if err != nil {
+			jsonError(w, "field 'file' required", http.StatusBadRequest)
+			return
+		}
+		defer f.Close()
+		filename = fh.Filename
+		buf := make([]byte, fh.Size)
+		if _, err := f.Read(buf); err != nil {
+			jsonError(w, "read error", http.StatusBadRequest)
+			return
+		}
+		data = buf
+	} else {
+		filename = r.URL.Query().Get("filename")
+		if filename == "" {
+			jsonError(w, "?filename= required for raw body upload", http.StatusBadRequest)
+			return
+		}
+		var err error
+		data, err = io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			jsonError(w, "read error", http.StatusBadRequest)
+			return
+		}
+	}
+
+	parser, err := lockfile.Detect(filename)
+	if err != nil {
+		jsonError(w, "unsupported lockfile format: "+filename, http.StatusBadRequest)
+		return
+	}
+	refs, err := parser.Parse(data)
+	if err != nil {
+		jsonError(w, "parse error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	type entry struct {
+		Package shield.PackageRef `json:"package"`
+		Result  *shield.ScanResult `json:"result,omitempty"`
+		Error   string             `json:"error,omitempty"`
+	}
+	results := make([]entry, 0, len(refs))
+	for _, ref := range refs {
+		result, err := s.scanner.Analyze(ctx, ref, nil)
+		if err != nil {
+			results = append(results, entry{Package: ref, Error: err.Error()})
+			continue
+		}
+		results = append(results, entry{Package: ref, Result: result})
+	}
+	jsonOK(w, map[string]interface{}{"filename": filename, "count": len(results), "results": results})
 }
 
 // GET /api/v1/history?limit=50
@@ -188,6 +261,59 @@ func (s *Server) handleDeleteException(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "deleted"})
 }
 
+// GET /api/v1/users — admin only
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.store.ListUsers()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if users == nil {
+		users = []shield.User{}
+	}
+	jsonOK(w, map[string]interface{}{"users": users})
+}
+
+// POST /api/v1/users — admin only after first user exists; no auth for bootstrap
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
+		jsonError(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+	count, err := s.store.CountUsers()
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	role := strings.ToLower(req.Role)
+	if count == 0 {
+		role = "admin" // bootstrap: first user is always admin
+	} else if role != "admin" && role != "analyst" {
+		role = "analyst"
+	}
+	hash, err := bcryptHash(req.Password)
+	if err != nil {
+		jsonError(w, "password hashing failed", http.StatusInternalServerError)
+		return
+	}
+	user, err := s.store.CreateUser(req.Email, hash, role)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]interface{}{
+		"user_id":    user.UserID,
+		"email":      user.Email,
+		"role":       user.Role,
+		"created_at": user.CreatedAt,
+	})
+}
+
 func jsonOK(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
@@ -222,4 +348,9 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 
 func newID() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
+
+func bcryptHash(password string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	return string(b), err
 }

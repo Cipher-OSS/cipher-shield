@@ -456,7 +456,7 @@ func proxyStart(args []string) {
 
 	fmt.Printf("\n✓ cipher-shield proxy running on %s\n", addr)
 	fmt.Println("  All npm install and pip install commands are now screened.")
-	fmt.Println("  Press Ctrl+C to stop and restore original settings.\n")
+	fmt.Println("  Press Ctrl+C to stop and restore original settings.")
 
 	proxyCfg := proxy.Config{
 		ListenAddr: addr,
@@ -551,6 +551,10 @@ func (n *noopStore) GetException(_ shield.Ecosystem, _, _ string) (*shield.Excep
 func (n *noopStore) ListExceptions() ([]shield.Exception, error)  { return nil, nil }
 func (n *noopStore) AddException(_ shield.Exception) error        { return nil }
 func (n *noopStore) DeleteException(_ string) error               { return nil }
-func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error) { return nil, nil }
-func (n *noopStore) Migrate() error                               { return nil }
-func (n *noopStore) Close() error                                 { return nil }
+func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error)              { return nil, nil }
+func (n *noopStore) CreateUser(_, _, _ string) (*shield.User, error)             { return nil, nil }
+func (n *noopStore) GetUserByEmail(_ string) (*shield.User, error)               { return nil, nil }
+func (n *noopStore) CountUsers() (int, error)                                    { return 0, nil }
+func (n *noopStore) ListUsers() ([]shield.User, error)                           { return nil, nil }
+func (n *noopStore) Migrate() error                                              { return nil }
+func (n *noopStore) Close() error                                                { return nil }

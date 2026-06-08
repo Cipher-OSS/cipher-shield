@@ -2,6 +2,14 @@ package shield
 
 import "time"
 
+type User struct {
+	UserID       string    `json:"user_id"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"` // "admin" | "analyst"
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type Ecosystem string
 
 const (
