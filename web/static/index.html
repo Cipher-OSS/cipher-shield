@@ -220,15 +220,45 @@
 
   .nav-pill:hover { background: rgba(99,102,241,0.1); color: var(--text); }
   .nav-pill.active { background: rgba(99,102,241,0.18); color: var(--accent-h); }
+  .nav-pill.hidden { display: none; }
 
   .nav-pill svg { flex-shrink: 0; }
 
   .sidebar-footer {
     padding: 14px 18px;
     border-top: 1px solid var(--border);
+  }
+
+  .sidebar-footer .user-info {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .sidebar-footer .user-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .role-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(99,102,241,0.2);
+    color: var(--accent-h);
+    flex-shrink: 0;
+  }
+
+  .health-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .health-dot {
@@ -236,16 +266,14 @@
     border-radius: 50%;
     background: var(--green);
     display: inline-block;
+    flex-shrink: 0;
   }
 
   .health-dot.offline { background: var(--red); }
 
-  .sidebar-footer .health-label {
+  .health-label {
     font-size: 12px;
     color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
 
   /* Main content */
@@ -430,6 +458,14 @@
     margin-left: 4px;
   }
 
+  .result-meta {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
   .findings-list { display: flex; flex-direction: column; gap: 10px; }
 
   .finding-card {
@@ -454,12 +490,25 @@
     line-height: 1.6;
   }
 
+  .finding-refs {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .finding-refs a {
+    font-size: 11px;
+    color: var(--accent-h);
+    text-decoration: none;
+  }
+  .finding-refs a:hover { text-decoration: underline; }
+
   /* Exceptions modal overlay */
   .modal-overlay {
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.65);
-    display: flex;
     align-items: center;
     justify-content: center;
     z-index: 100;
@@ -500,6 +549,15 @@
   .mono {
     font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
     font-size: 13px;
+  }
+
+  .cached-tag {
+    font-size: 11px;
+    color: var(--muted);
+    background: rgba(148,163,184,0.1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
   }
 </style>
 </head>
@@ -565,12 +623,25 @@
         </svg>
         Exceptions
       </button>
+      <button class="nav-pill hidden" onclick="showView('users')" id="nav-users">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+        </svg>
+        Team
+      </button>
     </nav>
     <div class="sidebar-footer">
-      <span class="health-label">
+      <div class="user-info" id="sidebar-user" style="display:none">
+        <span class="user-email" id="sidebar-email"></span>
+        <span class="role-badge" id="sidebar-role"></span>
+      </div>
+      <div class="health-row">
         <span class="health-dot" id="health-dot"></span>
-        <span id="health-label-text">Checking...</span>
-      </span>
+        <span class="health-label" id="health-label-text">Checking...</span>
+        <button class="logout-btn" onclick="logout()" id="logout-btn" style="display:none;margin-left:auto;font-size:11px;padding:3px 8px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer">Out</button>
+      </div>
     </div>
   </aside>
 
@@ -578,7 +649,9 @@
   <main class="main">
     <div class="topbar">
       <h2 id="view-title">Dashboard</h2>
-      <button class="logout-btn" onclick="logout()" id="logout-btn" style="display:none">Sign Out</button>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span id="topbar-user" style="font-size:12px;color:var(--muted);display:none"></span>
+      </div>
     </div>
     <div class="content">
 
@@ -673,12 +746,35 @@
                 <th>Ecosystem</th>
                 <th>Version</th>
                 <th>Reason</th>
-                <th>Added</th>
+                <th>Added By</th>
+                <th>Date</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="exceptions-tbody">
-              <tr class="empty-row"><td colspan="6">Loading...</td></tr>
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Team / Users View (admin only) -->
+      <div class="view" id="view-users">
+        <div class="table-wrap" style="margin-bottom:24px">
+          <div class="table-header">
+            <h3>Team Members</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add User</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Member Since</th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody">
+              <tr class="empty-row"><td colspan="3">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -704,7 +800,7 @@
       <input type="text" id="exc-name" placeholder="e.g. left-pad">
     </div>
     <div class="field">
-      <label>Version <span style="color:var(--muted);font-weight:400;text-transform:none">(optional — leave blank for all versions)</span></label>
+      <label>Version <span style="color:var(--muted);font-weight:400;text-transform:none">(optional — blank = all versions)</span></label>
       <input type="text" id="exc-version" placeholder="e.g. 1.0.0">
     </div>
     <div class="field">
@@ -713,8 +809,35 @@
     </div>
     <div class="error-msg" id="exc-error"></div>
     <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeAddException()">Cancel</button>
+      <button class="btn btn-secondary" onclick="closeModal('exception-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="addException()" id="exc-submit-btn">Add Exception</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h3>Add Team Member</h3>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="user-email" placeholder="analyst@company.com">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="user-password" placeholder="••••••••">
+    </div>
+    <div class="field">
+      <label>Role</label>
+      <select id="user-role">
+        <option value="analyst">Analyst</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="error-msg" id="user-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addUser()" id="user-submit-btn">Add Member</button>
     </div>
   </div>
 </div>
@@ -723,33 +846,40 @@
 'use strict';
 
 const TOKEN_KEY = 'cipher_shield_token';
+const USER_KEY  = 'cipher_shield_user';
+
 let authRequired = false;
+let currentUser  = null;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function verdictBadge(v) {
   const colors = { block: '#ef4444', warn: '#f59e0b', allow: '#22c55e' };
-  return `<span style="background:${colors[v] || '#6b7280'};color:white;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">${(v || 'unknown').toUpperCase()}</span>`;
+  return `<span style="background:${colors[v]||'#6b7280'};color:white;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">${(v||'unknown').toUpperCase()}</span>`;
 }
 
 function severityBadge(s) {
-  const map = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#3b82f6', info: '#6b7280' };
-  const color = map[(s || '').toLowerCase()] || '#6b7280';
-  return `<span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700">${(s || 'INFO').toUpperCase()}</span>`;
+  const map = { critical:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#3b82f6', info:'#6b7280' };
+  const color = map[(s||'').toLowerCase()] || '#6b7280';
+  return `<span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700">${(s||'INFO').toUpperCase()}</span>`;
 }
 
 function fmtDate(ts) {
   if (!ts) return '—';
   const d = new Date(ts);
   if (isNaN(d)) return ts;
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
-function setLoading(btnId, loading, text) {
+function setLoading(btnId, loading, label) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
   btn.disabled = loading;
-  if (text) btn.textContent = loading ? 'Loading…' : text;
+  btn.textContent = loading ? 'Loading…' : label;
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
 }
 
 // ── API layer ───────────────────────────────────────────────────────────────
@@ -763,58 +893,45 @@ async function apiFetch(path, opts = {}) {
 
   if (res.status === 401 && authRequired) {
     sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
     showLogin();
     throw new Error('Unauthorized');
   }
-
   return res;
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
 async function boot() {
+  // Restore saved user
+  try {
+    const saved = sessionStorage.getItem(USER_KEY);
+    if (saved) currentUser = JSON.parse(saved);
+  } catch (_) {}
+
   let healthy = false;
   try {
     const res = await fetch('/api/v1/health');
     healthy = res.ok;
-
-    if (res.status === 401) {
-      authRequired = true;
-    }
-  } catch (_) {
-    healthy = false;
-  }
+  } catch (_) {}
 
   updateHealthIndicator(healthy);
 
   const token = sessionStorage.getItem(TOKEN_KEY);
 
-  if (!healthy) {
-    // Still show the app in degraded state
-    showApp(!!token);
-    return;
-  }
-
-  // Probe whether auth is required by checking health without a token
-  // If we get 401 on any endpoint, auth is required
   if (!token) {
-    // Try a lightweight authed endpoint to see if auth is enforced
+    // Probe whether auth is enforced
     try {
-      const probe = await fetch('/api/v1/history', { headers: { 'Content-Type': 'application/json' } });
+      const probe = await fetch('/api/v1/history', { headers:{'Content-Type':'application/json'} });
       if (probe.status === 401) {
         authRequired = true;
         showLogin();
         return;
       }
-    } catch (_) { /* ignore */ }
+    } catch (_) {}
   }
 
-  if (authRequired && !token) {
-    showLogin();
-    return;
-  }
-
-  showApp(!!token);
+  showApp();
 }
 
 function updateHealthIndicator(healthy) {
@@ -832,12 +949,30 @@ function showLogin() {
   document.getElementById('login-error').style.display = 'none';
 }
 
-function showApp(hasToken) {
+function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  document.getElementById('logout-btn').style.display = hasToken ? 'inline-flex' : 'none';
+
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  document.getElementById('logout-btn').style.display = token ? 'inline-block' : 'none';
+
+  if (currentUser) {
+    document.getElementById('sidebar-user').style.display = 'flex';
+    document.getElementById('sidebar-email').textContent  = currentUser.email || '';
+    document.getElementById('sidebar-role').textContent   = currentUser.role  || '';
+    document.getElementById('topbar-user').style.display  = 'inline';
+    document.getElementById('topbar-user').textContent    = currentUser.email || '';
+
+    // Show Team nav only for admins
+    const usersNav = document.getElementById('nav-users');
+    if (currentUser.role === 'admin') {
+      usersNav.classList.remove('hidden');
+    } else {
+      usersNav.classList.add('hidden');
+    }
+  }
+
   showView('dashboard');
-  loadHistory();
 }
 
 async function login() {
@@ -863,20 +998,23 @@ async function login() {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      errEl.textContent = data.error || data.message || 'Invalid credentials.';
+      errEl.textContent = data.error || 'Invalid credentials.';
       errEl.style.display = 'block';
       return;
     }
 
-    const token = data.token || data.access_token || data.jwt;
+    const token = data.token;
     if (!token) {
       errEl.textContent = 'Login succeeded but no token returned.';
       errEl.style.display = 'block';
       return;
     }
 
+    authRequired = true;
+    currentUser = data.user || { email };
     sessionStorage.setItem(TOKEN_KEY, token);
-    showApp(true);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+    showApp();
   } catch (e) {
     errEl.textContent = 'Network error — check that the server is running.';
     errEl.style.display = 'block';
@@ -887,16 +1025,24 @@ async function login() {
 
 function logout() {
   sessionStorage.removeItem(TOKEN_KEY);
-  if (authRequired) {
-    showLogin();
-  } else {
+  sessionStorage.removeItem(USER_KEY);
+  currentUser = null;
+  if (authRequired) showLogin();
+  else {
     document.getElementById('logout-btn').style.display = 'none';
+    document.getElementById('sidebar-user').style.display = 'none';
+    document.getElementById('topbar-user').style.display = 'none';
   }
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 
-const VIEW_TITLES = { dashboard: 'Dashboard', scan: 'Scan Package', exceptions: 'Exceptions' };
+const VIEW_TITLES = {
+  dashboard:  'Dashboard',
+  scan:       'Scan Package',
+  exceptions: 'Exceptions',
+  users:      'Team',
+};
 
 function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -912,6 +1058,7 @@ function showView(name) {
 
   if (name === 'dashboard')  loadHistory();
   if (name === 'exceptions') loadExceptions();
+  if (name === 'users')      loadUsers();
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -921,26 +1068,27 @@ async function loadHistory() {
   tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
 
   try {
-    const res = await apiFetch('/api/v1/history');
+    const res = await apiFetch('/api/v1/history?limit=100');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const items = Array.isArray(data) ? data : (data.history || data.results || data.items || []);
+    // API returns { results: [...], count: N }
+    const items = data.results || [];
 
-    // Compute today stats
+    // Today stats
     const today = new Date().toDateString();
-    const todayItems = items.filter(i => new Date(i.scanned_at || i.created_at || i.timestamp || 0).toDateString() === today);
-    const counts = todayItems.reduce((acc, i) => {
-      const v = (i.verdict || i.result || '').toLowerCase();
-      acc.total++;
-      acc[v] = (acc[v] || 0) + 1;
-      return acc;
-    }, { total: 0, block: 0, warn: 0, allow: 0 });
+    const counts = { total: 0, block: 0, warn: 0, allow: 0 };
+    for (const i of items) {
+      if (new Date(i.scanned_at).toDateString() === today) {
+        counts.total++;
+        counts[i.verdict] = (counts[i.verdict] || 0) + 1;
+      }
+    }
 
     document.getElementById('stat-total').textContent   = counts.total;
-    document.getElementById('stat-blocked').textContent = counts.block;
-    document.getElementById('stat-warn').textContent    = counts.warn;
-    document.getElementById('stat-clean').textContent   = counts.allow;
+    document.getElementById('stat-blocked').textContent = counts.block  || 0;
+    document.getElementById('stat-warn').textContent    = counts.warn   || 0;
+    document.getElementById('stat-clean').textContent   = counts.allow  || 0;
 
     if (!items.length) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No scan history yet.</td></tr>';
@@ -948,28 +1096,29 @@ async function loadHistory() {
     }
 
     tbody.innerHTML = items.slice(0, 50).map(i => {
-      const verdict  = (i.verdict || i.result || 'unknown').toLowerCase();
-      const pkg      = i.package || i.name || '—';
-      const eco      = i.ecosystem || '—';
-      const ver      = i.version || '—';
-      const findings = (i.findings || i.issues || []).length;
-      const ts       = fmtDate(i.scanned_at || i.created_at || i.timestamp);
+      // ScanResult.Package is a nested object { ecosystem, name, version }
+      const pkg  = i.package ? i.package.name      : '—';
+      const eco  = i.package ? i.package.ecosystem  : '—';
+      const ver  = i.package ? i.package.version    : '—';
+      const verb = (i.verdict || 'unknown').toLowerCase();
+      const nf   = (i.findings || []).length;
+      const ts   = fmtDate(i.scanned_at);
+      const cached = i.cached_at ? '<span class="cached-tag">cached</span>' : '';
       return `<tr>
-        <td class="mono">${pkg}</td>
-        <td>${eco}</td>
-        <td class="mono">${ver}</td>
-        <td>${verdictBadge(verdict)}</td>
-        <td>${findings > 0 ? `<span style="color:var(--amber)">${findings}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+        <td class="mono">${esc(pkg)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td>${verdictBadge(verb)} ${cached}</td>
+        <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
         <td style="color:var(--muted)">${ts}</td>
       </tr>`;
     }).join('');
   } catch (e) {
     if (e.message !== 'Unauthorized') {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="color:var(--red)">Failed to load history.</td></tr>';
-      document.getElementById('stat-total').textContent   = '—';
-      document.getElementById('stat-blocked').textContent = '—';
-      document.getElementById('stat-warn').textContent    = '—';
-      document.getElementById('stat-clean').textContent   = '—';
+      ['stat-total','stat-blocked','stat-warn','stat-clean'].forEach(id => {
+        document.getElementById(id).textContent = '—';
+      });
     }
   }
 }
@@ -982,12 +1131,11 @@ async function scanPackage() {
   const version   = document.getElementById('scan-version').value.trim();
   const resultEl  = document.getElementById('scan-result');
 
-  if (!name) {
-    document.getElementById('scan-name').focus();
-    return;
-  }
+  if (!name) { document.getElementById('scan-name').focus(); return; }
 
-  setLoading('scan-btn', true, 'Run Scan');
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
   resultEl.style.display = 'none';
 
   try {
@@ -1004,12 +1152,12 @@ async function scanPackage() {
     if (!res.ok) {
       resultEl.style.display = 'block';
       resultEl.innerHTML = `<div class="scan-result" style="border-color:var(--red)">
-        <p style="color:var(--red)">${data.error || data.message || `Scan failed (HTTP ${res.status})`}</p>
+        <p style="color:var(--red)">${esc(data.error || `Scan failed (HTTP ${res.status})`)}</p>
       </div>`;
       return;
     }
 
-    renderScanResult(data, name, version, ecosystem, resultEl);
+    renderScanResult(data, resultEl);
   } catch (e) {
     if (e.message !== 'Unauthorized') {
       resultEl.style.display = 'block';
@@ -1018,36 +1166,46 @@ async function scanPackage() {
       </div>`;
     }
   } finally {
-    setLoading('scan-btn', false, 'Run Scan');
-    document.getElementById('scan-btn').textContent = '';
-    const scanBtn = document.getElementById('scan-btn');
-    scanBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Run Scan`;
-    scanBtn.disabled = false;
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Run Scan`;
   }
 }
 
-function renderScanResult(data, name, version, ecosystem, container) {
-  const verdict  = (data.verdict || data.result || 'unknown').toLowerCase();
-  const findings = data.findings || data.issues || data.vulnerabilities || [];
-  const verdictColor = { block: 'var(--red)', warn: 'var(--amber)', allow: 'var(--green)' }[verdict] || 'var(--muted)';
+function renderScanResult(data, container) {
+  const pkg      = data.package || {};
+  const name     = pkg.name    || '—';
+  const version  = pkg.version || '';
+  const eco      = pkg.ecosystem || '';
+  const verdict  = (data.verdict || 'unknown').toLowerCase();
+  const findings = data.findings || [];
+  const verdictColor = { block:'var(--red)', warn:'var(--amber)', allow:'var(--green)' }[verdict] || 'var(--muted)';
+  const cached   = data.cached_at ? `<span class="cached-tag" style="margin-left:8px">cached ${fmtDate(data.cached_at)}</span>` : '';
+  const claudeTag = data.claude_used ? `<span style="font-size:11px;color:var(--accent-h);margin-left:8px">● Claude</span>` : '';
 
   const findingsHtml = findings.length === 0
-    ? '<p style="color:var(--muted);font-size:13px">No findings.</p>'
+    ? '<p style="color:var(--muted);font-size:13px">No findings — package looks clean.</p>'
     : `<div class="findings-list">${findings.map(f => {
-        const sev   = f.severity || f.level || 'info';
-        const title = f.title || f.name || f.id || 'Finding';
-        const desc  = f.description || f.message || f.detail || '';
+        const refs = (f.references || []).map(r =>
+          `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`
+        ).join('');
+        const cve = f.cve ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">${esc(f.cve)}</span>` : '';
+        const cvss = f.cvss ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">CVSS ${f.cvss}</span>` : '';
         return `<div class="finding-card">
-          <div class="finding-title">${severityBadge(sev)} ${title}</div>
-          ${desc ? `<div class="finding-desc">${desc}</div>` : ''}
+          <div class="finding-title">${severityBadge(f.severity)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+          ${refs ? `<div class="finding-refs">${refs}</div>` : ''}
         </div>`;
       }).join('')}</div>`;
 
   container.style.display = 'block';
   container.innerHTML = `<div class="scan-result" style="border-color:${verdictColor}">
     <div class="result-header">
-      <div class="result-pkg">${name}<span>${version ? '@' + version : ''} · ${ecosystem}</span></div>
-      ${verdictBadge(verdict)}
+      <div class="result-pkg">${esc(name)}<span>${version ? '@'+esc(version) : ''} · ${esc(eco)}</span></div>
+      <div style="display:flex;align-items:center">${verdictBadge(verdict)}${cached}${claudeTag}</div>
+    </div>
+    <div class="result-meta">
+      <span>Scan ID: <span class="mono" style="font-size:11px">${esc(data.scan_id||'')}</span></span>
+      <span>Duration: ${data.duration_ms || 0}ms</span>
     </div>
     <p class="section-title" style="font-size:13px;margin-bottom:12px">Findings (${findings.length})</p>
     ${findingsHtml}
@@ -1058,39 +1216,37 @@ function renderScanResult(data, name, version, ecosystem, container) {
 
 async function loadExceptions() {
   const tbody = document.getElementById('exceptions-tbody');
-  tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
 
   try {
     const res = await apiFetch('/api/v1/exceptions');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const items = Array.isArray(data) ? data : (data.exceptions || data.items || []);
+    // API returns { exceptions: [...] }
+    const items = data.exceptions || [];
 
     if (!items.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No exceptions defined.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No exceptions defined.</td></tr>';
       return;
     }
 
     tbody.innerHTML = items.map(item => {
-      const id      = item.id || item._id || '';
-      const pkg     = item.package || item.name || '—';
-      const eco     = item.ecosystem || '—';
-      const ver     = item.version || '<span style="color:var(--muted)">all</span>';
-      const reason  = item.reason || '<span style="color:var(--muted)">—</span>';
-      const ts      = fmtDate(item.created_at || item.added_at || item.timestamp);
+      const excId = item.exception_id || '';
+      const ver   = item.version || '';
       return `<tr>
-        <td class="mono">${pkg}</td>
-        <td>${eco}</td>
-        <td class="mono">${ver}</td>
-        <td style="max-width:280px;color:var(--muted);font-size:13px">${reason}</td>
-        <td style="color:var(--muted)">${ts}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="deleteException('${id}')">Remove</button></td>
+        <td class="mono">${esc(item.name || '—')}</td>
+        <td>${esc(item.ecosystem || '—')}</td>
+        <td class="mono">${ver ? esc(ver) : '<span style="color:var(--muted)">all</span>'}</td>
+        <td style="max-width:280px;color:var(--muted);font-size:13px">${esc(item.reason || '—')}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(item.created_by || '—')}</td>
+        <td style="color:var(--muted)">${fmtDate(item.created_at)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteException('${esc(excId)}')">Remove</button></td>
       </tr>`;
     }).join('');
   } catch (e) {
     if (e.message !== 'Unauthorized') {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="color:var(--red)">Failed to load exceptions.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7" style="color:var(--red)">Failed to load exceptions.</td></tr>';
     }
   }
 }
@@ -1104,10 +1260,6 @@ function openAddException() {
   setTimeout(() => document.getElementById('exc-name').focus(), 60);
 }
 
-function closeAddException() {
-  document.getElementById('exception-modal').classList.remove('open');
-}
-
 async function addException() {
   const ecosystem = document.getElementById('exc-ecosystem').value;
   const name      = document.getElementById('exc-name').value.trim();
@@ -1116,9 +1268,13 @@ async function addException() {
   const errEl     = document.getElementById('exc-error');
 
   errEl.style.display = 'none';
-
   if (!name) {
     errEl.textContent = 'Package name is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!reason) {
+    errEl.textContent = 'Reason is required.';
     errEl.style.display = 'block';
     return;
   }
@@ -1128,20 +1284,16 @@ async function addException() {
     const body = { ecosystem, name, reason };
     if (version) body.version = version;
 
-    const res = await apiFetch('/api/v1/exceptions', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-
+    const res = await apiFetch('/api/v1/exceptions', { method:'POST', body:JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      errEl.textContent = data.error || data.message || `Failed (HTTP ${res.status})`;
+      errEl.textContent = data.error || `Failed (HTTP ${res.status})`;
       errEl.style.display = 'block';
       return;
     }
 
-    closeAddException();
+    closeModal('exception-modal');
     loadExceptions();
   } catch (e) {
     if (e.message !== 'Unauthorized') {
@@ -1156,26 +1308,116 @@ async function addException() {
 async function deleteException(id) {
   if (!id) return;
   if (!confirm('Remove this exception?')) return;
-
   try {
-    const res = await apiFetch(`/api/v1/exceptions/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/v1/exceptions/${encodeURIComponent(id)}`, { method:'DELETE' });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alert(data.error || data.message || `Delete failed (HTTP ${res.status})`);
+      alert(data.error || `Delete failed (HTTP ${res.status})`);
       return;
     }
     loadExceptions();
   } catch (e) {
+    if (e.message !== 'Unauthorized') alert('Network error — could not reach the API.');
+  }
+}
+
+// ── Team / Users (admin) ──────────────────────────────────────────────────────
+
+async function loadUsers() {
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="3">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/users');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const items = data.users || [];
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No team members yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.map(u => {
+      const roleBg = u.role === 'admin' ? '#6366f1' : '#334155';
+      return `<tr>
+        <td>${esc(u.email || '—')}</td>
+        <td><span style="background:${roleBg};color:white;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700">${esc((u.role||'analyst').toUpperCase())}</span></td>
+        <td style="color:var(--muted)">${fmtDate(u.created_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
     if (e.message !== 'Unauthorized') {
-      alert('Network error — could not reach the API.');
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="3" style="color:var(--red)">Failed to load team members.</td></tr>';
     }
   }
 }
 
+function openAddUser() {
+  document.getElementById('user-email').value    = '';
+  document.getElementById('user-password').value = '';
+  document.getElementById('user-role').value     = 'analyst';
+  document.getElementById('user-error').style.display = 'none';
+  document.getElementById('user-modal').classList.add('open');
+  setTimeout(() => document.getElementById('user-email').focus(), 60);
+}
+
+async function addUser() {
+  const email    = document.getElementById('user-email').value.trim();
+  const password = document.getElementById('user-password').value;
+  const role     = document.getElementById('user-role').value;
+  const errEl    = document.getElementById('user-error');
+
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('user-submit-btn', true, 'Add Member');
+  try {
+    const res = await apiFetch('/api/v1/users', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, role }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || `Failed (HTTP ${res.status})`;
+      errEl.style.display = 'block';
+      return;
+    }
+
+    closeModal('user-modal');
+    loadUsers();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      errEl.textContent = 'Network error — could not reach the API.';
+      errEl.style.display = 'block';
+    }
+  } finally {
+    setLoading('user-submit-btn', false, 'Add Member');
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
 // ── Modal close on backdrop click ────────────────────────────────────────────
 
-document.getElementById('exception-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeAddException();
+['exception-modal','user-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) closeModal(id);
+  });
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
