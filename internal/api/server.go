@@ -18,6 +18,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const apiVersion = "0.1.0"
+
 // Scanner is the minimal interface the API needs from the pipeline.
 type Scanner interface {
 	Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) (*shield.ScanResult, error)
@@ -94,13 +96,13 @@ func (s *Server) routes() {
 
 // GET /api/v1/health
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	jsonOK(w, map[string]string{"status": "ok", "version": "0.1.0"})
+	jsonOK(w, map[string]string{"status": "ok", "version": apiVersion})
 }
 
 // GET /api/v1/config — unauthenticated; lets clients discover server capabilities.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{
-		"version":      "0.1.0",
+		"version":      apiVersion,
 		"auth_enabled": len(s.jwtSecret) > 0,
 		"mode":         s.mode,
 	})

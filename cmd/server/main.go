@@ -18,6 +18,9 @@ import (
 	"github.com/homes853/cipher-shield/internal/proxy"
 )
 
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	proxyAddr    := flag.String("proxy-addr",     envOr("SHIELD_PROXY_ADDR",  ":7070"),         "Registry proxy listen address")
 	apiAddr      := flag.String("api-addr",       envOr("SHIELD_API_ADDR",    ":8080"),         "API + dashboard listen address")
@@ -30,10 +33,10 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
-	log.Println("╔══════════════════════════════════════╗")
-	log.Println("║  cipher-shield  v0.1.0               ║")
-	log.Println("║  AI-powered package security firewall║")
-	log.Println("╚══════════════════════════════════════╝")
+	log.Printf("╔══════════════════════════════════════╗")
+	log.Printf("║  cipher-shield  %-20s║", version)
+	log.Printf("║  AI-powered package security firewall║")
+	log.Printf("╚══════════════════════════════════════╝")
 
 	// ── Database ──────────────────────────────────────────────────────────────
 	var store db.Store

@@ -26,6 +26,9 @@ import (
 	"github.com/homes853/cipher-shield/internal/reporter"
 )
 
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -37,7 +40,7 @@ func main() {
 	case "proxy":
 		runProxy(os.Args[2:])
 	case "version":
-		fmt.Println("cipher-shield v0.1.0")
+		fmt.Printf("cipher-shield %s\n", version)
 	default:
 		printUsage()
 		os.Exit(1)
@@ -163,25 +166,25 @@ func scanPackage(pl *pipeline.Pipeline, args []string) {
 	}
 
 	// Parse name@version — LastIndex handles scoped packages like @scope/name@1.0.0
-	name, version := nameVersion, "latest"
+	name, ver := nameVersion, "latest"
 	if idx := strings.LastIndex(nameVersion, "@"); idx > 0 {
 		name = nameVersion[:idx]
-		version = nameVersion[idx+1:]
+		ver = nameVersion[idx+1:]
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	// Resolve "latest" to a real version before fetching the tarball
-	if version == "latest" {
+	if ver == "latest" {
 		if resolved, err := resolveLatestVersion(ctx, eco, name); err == nil {
-			version = resolved
-			fmt.Printf("Resolved %s@latest → %s\n\n", name, version)
+			ver = resolved
+			fmt.Printf("Resolved %s@latest → %s\n\n", name, ver)
 		}
 	}
 
-	pkg := shield.PackageRef{Ecosystem: eco, Name: name, Version: version}
-	fmt.Printf("Scanning %s@%s (%s)...\n", name, version, eco)
+	pkg := shield.PackageRef{Ecosystem: eco, Name: name, Version: ver}
+	fmt.Printf("Scanning %s@%s (%s)...\n", name, ver, eco)
 
 	// Fetch the tarball so tiers 3 (heuristic) and 4 (Claude) can run
 	fmt.Printf("  Fetching tarball... ")
@@ -244,7 +247,7 @@ func fetchTarball(ctx context.Context, pkg shield.PackageRef) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "cipher-shield/0.1.0")
+	req.Header.Set("User-Agent", "cipher-shield/"+version)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -261,8 +264,8 @@ func fetchTarball(ctx context.Context, pkg shield.PackageRef) ([]byte, error) {
 }
 
 // resolvePyPITarball queries the PyPI JSON API and returns the sdist download URL.
-func resolvePyPITarball(ctx context.Context, name, version string) (string, error) {
-	apiURL := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", name, version)
+func resolvePyPITarball(ctx context.Context, name, ver string) (string, error) {
+	apiURL := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", name, ver)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return "", err
@@ -301,7 +304,7 @@ func resolvePyPITarball(ctx context.Context, name, version string) (string, erro
 	if wheel != "" {
 		return wheel, nil
 	}
-	return "", fmt.Errorf("no downloadable file found for %s@%s on PyPI", name, version)
+	return "", fmt.Errorf("no downloadable file found for %s@%s on PyPI", name, ver)
 }
 
 // resolveLatestVersion fetches the current latest version for a package.
@@ -557,13 +560,13 @@ func (n *noopStore) SaveResult(_ shield.ScanResult) error { return nil }
 func (n *noopStore) GetException(_ shield.Ecosystem, _, _ string) (*shield.Exception, error) {
 	return nil, nil
 }
-func (n *noopStore) ListExceptions() ([]shield.Exception, error)  { return nil, nil }
-func (n *noopStore) AddException(_ shield.Exception) error        { return nil }
-func (n *noopStore) DeleteException(_ string) error               { return nil }
-func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error)              { return nil, nil }
-func (n *noopStore) CreateUser(_, _, _ string) (*shield.User, error)             { return nil, nil }
-func (n *noopStore) GetUserByEmail(_ string) (*shield.User, error)               { return nil, nil }
-func (n *noopStore) CountUsers() (int, error)                                    { return 0, nil }
-func (n *noopStore) ListUsers() ([]shield.User, error)                           { return nil, nil }
-func (n *noopStore) Migrate() error                                              { return nil }
-func (n *noopStore) Close() error                                                { return nil }
+func (n *noopStore) ListExceptions() ([]shield.Exception, error)              { return nil, nil }
+func (n *noopStore) AddException(_ shield.Exception) error                    { return nil }
+func (n *noopStore) DeleteException(_ string) error                           { return nil }
+func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error)           { return nil, nil }
+func (n *noopStore) CreateUser(_, _, _ string) (*shield.User, error)          { return nil, nil }
+func (n *noopStore) GetUserByEmail(_ string) (*shield.User, error)            { return nil, nil }
+func (n *noopStore) CountUsers() (int, error)                                 { return 0, nil }
+func (n *noopStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
+func (n *noopStore) Migrate() error                                           { return nil }
+func (n *noopStore) Close() error                                             { return nil }

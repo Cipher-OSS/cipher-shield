@@ -13,11 +13,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goos: linux,   goarch: amd64, runs-on: ubuntu-latest,  cc: "" }
-          - { goos: linux,   goarch: arm64, runs-on: ubuntu-latest,  cc: aarch64-linux-gnu-gcc }
-          - { goos: darwin,  goarch: amd64, runs-on: macos-latest,   cc: "" }
-          - { goos: darwin,  goarch: arm64, runs-on: macos-latest,   cc: "" }
-          - { goos: windows, goarch: amd64, runs-on: ubuntu-latest,  cc: x86_64-w64-mingw32-gcc }
+          # Linux — cross-compile from x86_64 Ubuntu; sqlite3 needs CGO + proper cross-CC
+          - { goos: linux,   goarch: amd64, runs-on: ubuntu-latest, cc: "" }
+          - { goos: linux,   goarch: arm64, runs-on: ubuntu-latest, cc: aarch64-linux-gnu-gcc }
+
+          # macOS — use native runners so CGO compiles without cross-toolchain
+          # macos-13 = x86_64 Intel;  macos-latest (14+) = Apple Silicon arm64
+          - { goos: darwin,  goarch: amd64, runs-on: macos-13,      cc: "" }
+          - { goos: darwin,  goarch: arm64, runs-on: macos-latest,  cc: "" }
+
+          # Windows — cross-compile via mingw-w64
+          - { goos: windows, goarch: amd64, runs-on: ubuntu-latest, cc: x86_64-w64-mingw32-gcc }
 
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +37,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           pkgs=""
-          [ "${{ matrix.goarch }}" = "arm64" ] && pkgs="$pkgs gcc-aarch64-linux-gnu"
+          [ "${{ matrix.goarch }}" = "arm64" ] && [ "${{ matrix.goos }}" = "linux" ] && pkgs="$pkgs gcc-aarch64-linux-gnu"
           [ "${{ matrix.goos }}" = "windows" ] && pkgs="$pkgs mingw-w64"
-          [ -n "$pkgs" ] && sudo apt-get install -y $pkgs
+          [ -n "$pkgs" ] && sudo apt-get install -y $pkgs || true
 
       - name: Build binaries
         env:
@@ -45,15 +51,18 @@ jobs:
           mkdir -p dist
           ext=""
           [ "${{ matrix.goos }}" = "windows" ] && ext=".exe"
+          TAG="${GITHUB_REF_NAME}"
 
-          go build -ldflags="-s -w" \
-            -o dist/cipher-shield-${{ matrix.goos }}-${{ matrix.goarch }}${ext} \
+          go build \
+            -ldflags="-s -w -X main.version=${TAG}" \
+            -o "dist/cipher-shield-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" \
             ./cmd/shield/
 
-          # Server binary: Linux only (runs in Docker on other platforms)
+          # Server binary: Linux only (other platforms deploy via Docker)
           if [ "${{ matrix.goos }}" = "linux" ]; then
-            go build -ldflags="-s -w" \
-              -o dist/shield-server-${{ matrix.goos }}-${{ matrix.goarch }} \
+            go build \
+              -ldflags="-s -w -X main.version=${TAG}" \
+              -o "dist/shield-server-${{ matrix.goos }}-${{ matrix.goarch }}" \
               ./cmd/server/
           fi
 
@@ -75,7 +84,12 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*
+          files: |
+            dist/**
           generate_release_notes: true
