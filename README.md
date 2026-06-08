@@ -160,8 +160,24 @@ pip config set global.index-url http://shield.internal:7070/simple/
 | `SHIELD_PROXY_ADDR` | `127.0.0.1:7070` | Proxy listen address |
 | `SHIELD_API_ADDR` | `:8080` | API + dashboard listen address (server only) |
 | `SHIELD_JWT_SECRET` | — | Required for dashboard auth. Generate with `openssl rand -hex 32`. |
+| `SHIELD_PROXY_TOKEN` | — | Pre-shared token for proxy agents reporting to the central server. Generate with `openssl rand -hex 32`. |
+| `SHIELD_SERVER_URL` | — | URL of the central server. When set on a dev machine, the proxy ships results there. |
 | `SHIELD_DB_PATH` | `~/.cipher-shield/shield.db` | SQLite path (local mode) |
 | `DATABASE_URL` | — | Postgres DSN. When set, uses Postgres instead of SQLite. |
+
+---
+
+## Deployment
+
+Step-by-step guides for deploying the team server to each cloud:
+
+| Cloud | Guide | Architecture | Est. cost |
+|---|---|---|---|
+| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | EC2 + RDS PostgreSQL | ~$30/mo |
+| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15/mo |
+| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Instances + PostgreSQL Flexible Server | ~$35/mo |
+
+All guides cover: database setup, container deployment, first-user bootstrap, dev machine configuration, and teardown.
 
 ---
 

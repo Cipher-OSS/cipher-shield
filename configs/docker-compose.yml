@@ -4,10 +4,12 @@ version: "3.9"
 # Usage: docker compose up -d
 #
 # Required env vars:
-#   SHIELD_JWT_SECRET      — random 32+ byte string
-#   ANTHROPIC_API_KEY      — Anthropic API key (optional, enables Claude analysis)
+#   SHIELD_JWT_SECRET      — random 32+ byte string  (openssl rand -hex 32)
+#   SHIELD_PROXY_TOKEN     — random 32+ byte string  (openssl rand -hex 32)
+#   DB_PASSWORD            — Postgres password
 #
 # Optional:
+#   ANTHROPIC_API_KEY      — Anthropic API key (enables Claude Opus analysis)
 #   SHIELD_MODE            — enforce (default) | warn | audit
 
 services:
@@ -19,6 +21,7 @@ services:
       - "8080:8080"   # Dashboard + API
     environment:
       - SHIELD_JWT_SECRET=${SHIELD_JWT_SECRET}
+      - SHIELD_PROXY_TOKEN=${SHIELD_PROXY_TOKEN}
       - SHIELD_MODE=${SHIELD_MODE:-enforce}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATABASE_URL=postgres://shield:${DB_PASSWORD}@postgres:5432/shield?sslmode=disable
