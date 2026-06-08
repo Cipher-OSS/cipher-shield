@@ -25,21 +25,28 @@ type Scanner interface {
 
 // Server is the cipher-shield HTTP API server.
 type Server struct {
-	router     *mux.Router
-	store      db.Store
-	scanner    Scanner
-	jwtSecret  []byte
-	proxyToken []byte
+	router       *mux.Router
+	store        db.Store
+	scanner      Scanner
+	jwtSecret    []byte
+	proxyToken   []byte
+	mode         string     // enforce | warn | audit
+	loginLimiter *ipLimiter // per-IP rate limiter for login endpoint
 }
 
 // New creates a Server.
-func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte) *Server {
+func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode string) *Server {
+	if mode == "" {
+		mode = "enforce"
+	}
 	s := &Server{
-		router:     mux.NewRouter(),
-		store:      store,
-		scanner:    scanner,
-		jwtSecret:  jwtSecret,
-		proxyToken: proxyToken,
+		router:       mux.NewRouter(),
+		store:        store,
+		scanner:      scanner,
+		jwtSecret:    jwtSecret,
+		proxyToken:   proxyToken,
+		mode:         mode,
+		loginLimiter: newIPLimiter(1.0/12.0, 5), // 5 attempts per minute per IP
 	}
 	s.routes()
 	return s
@@ -55,9 +62,10 @@ func (s *Server) routes() {
 
 	// Public
 	s.router.HandleFunc("/api/v1/health", s.handleHealth).Methods("GET")
+	s.router.HandleFunc("/api/v1/config", s.handleConfig).Methods("GET")
 
 	// Auth
-	s.router.HandleFunc("/api/v1/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/auth/login", s.rateLimitLogin(s.handleLogin)).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/auth/me", s.requireUser(s.handleMe)).Methods("GET", "OPTIONS")
 
 	// Users (admin or bootstrap)
@@ -87,6 +95,15 @@ func (s *Server) routes() {
 // GET /api/v1/health
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok", "version": "0.1.0"})
+}
+
+// GET /api/v1/config — unauthenticated; lets clients discover server capabilities.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, map[string]interface{}{
+		"version":      "0.1.0",
+		"auth_enabled": len(s.jwtSecret) > 0,
+		"mode":         s.mode,
+	})
 }
 
 // POST /api/v1/scan/package — scan a single package by name+version

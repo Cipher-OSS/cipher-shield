@@ -103,7 +103,7 @@ func main() {
 		log.Printf("[startup] WARNING: SHIELD_PROXY_TOKEN not set — proxy reporting unauthenticated (dev mode)")
 	}
 
-	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken))
+	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode)
 	if err := http.ListenAndServe(*apiAddr, srv); err != nil {
 		log.Fatalf("[server] fatal: %v", err)
 	}
