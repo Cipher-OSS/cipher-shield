@@ -25,19 +25,21 @@ type Scanner interface {
 
 // Server is the cipher-shield HTTP API server.
 type Server struct {
-	router    *mux.Router
-	store     db.Store
-	scanner   Scanner
-	jwtSecret []byte
+	router     *mux.Router
+	store      db.Store
+	scanner    Scanner
+	jwtSecret  []byte
+	proxyToken []byte
 }
 
 // New creates a Server.
-func New(store db.Store, scanner Scanner, jwtSecret []byte) *Server {
+func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte) *Server {
 	s := &Server{
-		router:    mux.NewRouter(),
-		store:     store,
-		scanner:   scanner,
-		jwtSecret: jwtSecret,
+		router:     mux.NewRouter(),
+		store:      store,
+		scanner:    scanner,
+		jwtSecret:  jwtSecret,
+		proxyToken: proxyToken,
 	}
 	s.routes()
 	return s
@@ -61,6 +63,9 @@ func (s *Server) routes() {
 	// Users (admin or bootstrap)
 	s.router.HandleFunc("/api/v1/users", s.requireAdmin(s.handleListUsers)).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/v1/users", s.requireAdminOrBootstrap(s.handleCreateUser)).Methods("POST", "OPTIONS")
+
+	// Proxy reporting (authenticated by pre-shared proxy token)
+	s.router.HandleFunc("/api/v1/report", s.requireProxyToken(s.handleReport)).Methods("POST", "OPTIONS")
 
 	// Scan
 	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.handleScanPackage)).Methods("POST", "OPTIONS")
@@ -353,4 +358,39 @@ func newID() string {
 func bcryptHash(password string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	return string(b), err
+}
+
+// requireProxyToken validates the pre-shared proxy bearer token.
+// When proxyToken is empty, all requests are allowed (dev mode).
+func (s *Server) requireProxyToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if len(s.proxyToken) == 0 {
+			next(w, r)
+			return
+		}
+		h := r.Header.Get("Authorization")
+		if !strings.HasPrefix(h, "Bearer ") || h[7:] != string(s.proxyToken) {
+			jsonError(w, "invalid proxy token", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// POST /api/v1/report — receives a ScanResult from a proxy agent and stores it.
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	var result shield.ScanResult
+	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
+		jsonError(w, "invalid scan result: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if result.Package.Name == "" {
+		jsonError(w, "package name required", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SaveResult(result); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
 }

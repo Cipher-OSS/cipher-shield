@@ -23,6 +23,7 @@ import (
 	"github.com/homes853/cipher-shield/internal/pipeline"
 	"github.com/homes853/cipher-shield/internal/proxy"
 	"github.com/homes853/cipher-shield/internal/proxyctl"
+	"github.com/homes853/cipher-shield/internal/reporter"
 )
 
 func main() {
@@ -462,6 +463,14 @@ func proxyStart(args []string) {
 		ListenAddr: addr,
 		Mode:       proxy.Mode(envOr("SHIELD_MODE", "enforce")),
 		Pipeline:   pl,
+	}
+	if serverURL := envOr("SHIELD_SERVER_URL", ""); serverURL != "" {
+		token := envOr("SHIELD_PROXY_TOKEN", "")
+		proxyCfg.Reporter = reporter.New(serverURL, token)
+		fmt.Printf("✓ reporting results to %s\n", serverURL)
+		if token == "" {
+			fmt.Fprintln(os.Stderr, "  [warn] SHIELD_PROXY_TOKEN not set — reports will be unauthenticated")
+		}
 	}
 	if err := proxy.New(proxyCfg).Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "proxy error: %v\n", err)

@@ -31,12 +31,18 @@ type Analyzer interface {
 	Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) (*shield.ScanResult, error)
 }
 
+// ResultReporter ships scan results to a central server.
+type ResultReporter interface {
+	Report(result *shield.ScanResult)
+}
+
 // Config holds proxy startup configuration.
 type Config struct {
-	ListenAddr   string   // e.g. "127.0.0.1:7070"
+	ListenAddr   string         // e.g. "127.0.0.1:7070"
 	Mode         Mode
-	MaxBodyBytes int64    // max tarball to buffer (default 50MB)
-	Pipeline     Analyzer // nil = pass everything through (audit)
+	MaxBodyBytes int64          // max tarball to buffer (default 50MB)
+	Pipeline     Analyzer       // nil = pass everything through (audit)
+	Reporter     ResultReporter // nil = local-only, no central reporting
 }
 
 // Proxy is the package registry interception proxy.
@@ -159,6 +165,11 @@ func (p *Proxy) handleTarball(conn net.Conn, req *http.Request, pkg shield.Packa
 	}
 
 	log.Printf("[proxy] %s@%s verdict=%s", pkg.Name, pkg.Version, result.Verdict)
+
+	// Ship result to central server if configured (non-blocking)
+	if p.cfg.Reporter != nil {
+		p.cfg.Reporter.Report(result)
+	}
 
 	// Block if verdict is block and mode is enforce
 	if result.Verdict == shield.VerdictBlock && p.cfg.Mode == ModeEnforce {

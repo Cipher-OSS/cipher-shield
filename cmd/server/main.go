@@ -26,6 +26,7 @@ func main() {
 	mode         := flag.String("mode",           envOr("SHIELD_MODE",         "enforce"),      "enforce | warn | audit")
 	anthropicKey := flag.String("anthropic-key",  envOr("ANTHROPIC_API_KEY",  ""),             "Anthropic API key (enables Claude analysis)")
 	jwtSecret    := flag.String("jwt-secret",     envOr("SHIELD_JWT_SECRET",  ""),             "JWT signing secret")
+	proxyToken   := flag.String("proxy-token",    envOr("SHIELD_PROXY_TOKEN", ""),             "Pre-shared token for proxy agent reporting")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -98,7 +99,11 @@ func main() {
 		log.Printf("[startup] WARNING: SHIELD_JWT_SECRET not set — API auth disabled (dev mode)")
 	}
 
-	srv := api.New(store, pl, []byte(*jwtSecret))
+	if *proxyToken == "" {
+		log.Printf("[startup] WARNING: SHIELD_PROXY_TOKEN not set — proxy reporting unauthenticated (dev mode)")
+	}
+
+	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken))
 	if err := http.ListenAndServe(*apiAddr, srv); err != nil {
 		log.Fatalf("[server] fatal: %v", err)
 	}
