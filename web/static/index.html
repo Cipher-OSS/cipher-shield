@@ -559,6 +559,94 @@
     border-radius: 4px;
     padding: 1px 6px;
   }
+
+  /* ── Lockfile upload ── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--surface);
+    margin-bottom: 24px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.05);
+  }
+  .drop-zone .drop-icon { margin-bottom: 12px; color: var(--muted); }
+  .drop-zone .drop-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .drop-zone .drop-sub   { font-size: 13px; color: var(--muted); }
+  .drop-zone .drop-types { font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+  .lockfile-progress {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: none;
+  }
+  .lockfile-progress .progress-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .lockfile-summary {
+    display: none;
+    margin-bottom: 24px;
+  }
+  .lockfile-summary .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .lockfile-summary .summary-filename {
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .lockfile-summary .summary-filename span {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+
+  .lockfile-row-findings {
+    display: none;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .lockfile-row-findings td {
+    padding: 12px 20px;
+    border-bottom: none;
+  }
+  .lockfile-row-findings .finding-card {
+    margin-bottom: 8px;
+  }
+  .lockfile-row-findings .finding-card:last-child {
+    margin-bottom: 0;
+  }
+  tr.has-findings { cursor: pointer; }
+  tr.has-findings:hover td { background: rgba(99,102,241,0.06); }
 </style>
 </head>
 <body>
@@ -616,6 +704,16 @@
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         Scan Package
+      </button>
+      <button class="nav-pill" onclick="showView('lockfile')" id="nav-lockfile">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        Lockfile Scan
       </button>
       <button class="nav-pill" onclick="showView('exceptions')" id="nav-exceptions">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -730,6 +828,76 @@
           </button>
         </div>
         <div id="scan-result" style="display:none"></div>
+      </div>
+
+      <!-- Lockfile Scan View -->
+      <div class="view" id="view-lockfile">
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="drop-zone"
+          onclick="document.getElementById('lockfile-input').click()"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)">
+          <input type="file" id="lockfile-input" style="display:none"
+            accept=".json,.lock,.txt"
+            onchange="handleFileSelect(event)">
+          <div class="drop-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <polyline points="9 15 12 12 15 15"/>
+            </svg>
+          </div>
+          <div class="drop-title">Drop a lockfile here or click to browse</div>
+          <div class="drop-sub">Scans every package through the full pipeline</div>
+          <div class="drop-types">package-lock.json · yarn.lock · requirements.txt · poetry.lock</div>
+        </div>
+
+        <!-- Progress bar (shown while scanning) -->
+        <div class="lockfile-progress" id="lockfile-progress">
+          <div class="progress-label">
+            <span id="lockfile-progress-label">Scanning…</span>
+            <span id="lockfile-progress-pct"></span>
+          </div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="lockfile-progress-bar"></div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="lockfile-summary" id="lockfile-summary">
+          <div class="summary-header">
+            <div>
+              <div class="summary-filename" id="lockfile-filename">
+                —<span id="lockfile-pkg-count"></span>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span id="lockfile-stat-block" style="color:var(--red);font-size:13px;font-weight:600"></span>
+              <span id="lockfile-stat-warn"  style="color:var(--amber);font-size:13px;font-weight:600"></span>
+              <span id="lockfile-stat-clean" style="color:var(--green);font-size:13px;font-weight:600"></span>
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('lockfile-input').click()">Scan another</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Package</th>
+                  <th>Ecosystem</th>
+                  <th>Version</th>
+                  <th>Verdict</th>
+                  <th>Findings</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="lockfile-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- Exceptions View -->
@@ -1040,6 +1208,7 @@ function logout() {
 const VIEW_TITLES = {
   dashboard:  'Dashboard',
   scan:       'Scan Package',
+  lockfile:   'Lockfile Scan',
   exceptions: 'Exceptions',
   users:      'Team',
 };
@@ -1400,6 +1569,167 @@ async function addUser() {
   } finally {
     setLoading('user-submit-btn', false, 'Add Member');
   }
+}
+
+// ── Lockfile Scan ─────────────────────────────────────────────────────────────
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) runLockfileScan(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) runLockfileScan(file);
+  e.target.value = '';
+}
+
+async function runLockfileScan(file) {
+  const progressEl  = document.getElementById('lockfile-progress');
+  const summaryEl   = document.getElementById('lockfile-summary');
+  const barEl       = document.getElementById('lockfile-progress-bar');
+  const labelEl     = document.getElementById('lockfile-progress-label');
+  const pctEl       = document.getElementById('lockfile-progress-pct');
+
+  summaryEl.style.display  = 'none';
+  progressEl.style.display = 'block';
+  barEl.style.width        = '0%';
+  labelEl.textContent      = `Uploading ${file.name}…`;
+  pctEl.textContent        = '';
+
+  try {
+    // Animate bar to 30% during upload
+    barEl.style.width = '30%';
+
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/v1/scan/lockfile', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    barEl.style.width   = '70%';
+    labelEl.textContent = 'Processing results…';
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      progressEl.style.display = 'none';
+      alert(data.error || `Scan failed (HTTP ${res.status})`);
+      return;
+    }
+
+    barEl.style.width = '100%';
+    setTimeout(() => {
+      progressEl.style.display = 'none';
+      renderLockfileResults(file.name, data);
+    }, 300);
+
+  } catch (e) {
+    progressEl.style.display = 'none';
+    if (e.message !== 'Unauthorized') {
+      alert('Network error — could not reach the API.');
+    }
+  }
+}
+
+function renderLockfileResults(filename, data) {
+  const results = data.results || [];
+  const summaryEl = document.getElementById('lockfile-summary');
+
+  // Stats
+  let nBlock = 0, nWarn = 0, nClean = 0, nErr = 0;
+  for (const r of results) {
+    if (r.error) { nErr++; continue; }
+    const v = (r.result && r.result.verdict) || 'allow';
+    if (v === 'block') nBlock++;
+    else if (v === 'warn') nWarn++;
+    else nClean++;
+  }
+
+  document.getElementById('lockfile-filename').firstChild.textContent = filename;
+  document.getElementById('lockfile-pkg-count').textContent = ` — ${results.length} package${results.length !== 1 ? 's' : ''}`;
+  document.getElementById('lockfile-stat-block').textContent = nBlock ? `${nBlock} blocked`  : '';
+  document.getElementById('lockfile-stat-warn').textContent  = nWarn  ? `${nWarn} warnings`  : '';
+  document.getElementById('lockfile-stat-clean').textContent = `${nClean} clean`;
+
+  const tbody = document.getElementById('lockfile-tbody');
+  tbody.innerHTML = results.map((r, idx) => {
+    const pkg      = r.package || {};
+    const name     = pkg.name    || '—';
+    const eco      = pkg.ecosystem || '—';
+    const ver      = pkg.version  || '—';
+
+    if (r.error) {
+      return `<tr>
+        <td class="mono">${esc(name)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td colspan="3" style="color:var(--muted);font-size:12px">${esc(r.error)}</td>
+      </tr>`;
+    }
+
+    const result   = r.result || {};
+    const verdict  = (result.verdict || 'allow').toLowerCase();
+    const findings = result.findings || [];
+    const nf       = findings.length;
+    const hasFindings = nf > 0;
+    const rowId    = `lf-findings-${idx}`;
+
+    const findingsHtml = findings.map(f => {
+      const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+      const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+      return `<div class="finding-card">
+        <div class="finding-title">${severityBadge(f.severity)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+        ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const expandBtn = hasFindings
+      ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+      : '';
+
+    const detailRow = hasFindings ? `
+      <tr class="lockfile-row-findings" id="${rowId}">
+        <td colspan="6"><div style="padding:4px 0">${findingsHtml}</div></td>
+      </tr>` : '';
+
+    return `<tr class="${hasFindings ? 'has-findings' : ''}" ${hasFindings ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
+      <td class="mono">${esc(name)}</td>
+      <td>${esc(eco)}</td>
+      <td class="mono">${esc(ver)}</td>
+      <td>${verdictBadge(verdict)}</td>
+      <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+      <td>${expandBtn}</td>
+    </tr>${detailRow}`;
+  }).join('');
+
+  summaryEl.style.display = 'block';
+}
+
+function toggleLockfileFindings(rowId, btn) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const open = row.style.display === 'table-row';
+  row.style.display = open ? 'none' : 'table-row';
+  if (btn) btn.textContent = open ? 'Details' : 'Hide';
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
