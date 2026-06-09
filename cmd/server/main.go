@@ -22,14 +22,17 @@ import (
 var version = "dev"
 
 func main() {
-	proxyAddr    := flag.String("proxy-addr",     envOr("SHIELD_PROXY_ADDR",  ":7070"),         "Registry proxy listen address")
-	apiAddr      := flag.String("api-addr",       envOr("SHIELD_API_ADDR",    ":8080"),         "API + dashboard listen address")
-	dbURL        := flag.String("db",             envOr("DATABASE_URL",        ""),             "Postgres DSN (leave empty for SQLite)")
-	dbPath       := flag.String("db-path",        envOr("SHIELD_DB_PATH",      defaultDBPath()), "SQLite file path")
-	mode         := flag.String("mode",           envOr("SHIELD_MODE",         "enforce"),      "enforce | warn | audit")
-	anthropicKey := flag.String("anthropic-key",  envOr("ANTHROPIC_API_KEY",  ""),             "Anthropic API key (enables Claude analysis)")
-	jwtSecret    := flag.String("jwt-secret",     envOr("SHIELD_JWT_SECRET",  ""),             "JWT signing secret")
-	proxyToken   := flag.String("proxy-token",    envOr("SHIELD_PROXY_TOKEN", ""),             "Pre-shared token for proxy agent reporting")
+	proxyAddr    := flag.String("proxy-addr",     envOr("SHIELD_PROXY_ADDR",    ":7070"),         "Registry proxy listen address")
+	apiAddr      := flag.String("api-addr",       envOr("SHIELD_API_ADDR",      ":8080"),         "API + dashboard listen address")
+	dbURL        := flag.String("db",             envOr("DATABASE_URL",          ""),             "Postgres DSN (leave empty for SQLite)")
+	dbPath       := flag.String("db-path",        envOr("SHIELD_DB_PATH",        defaultDBPath()), "SQLite file path")
+	mode         := flag.String("mode",           envOr("SHIELD_MODE",           "enforce"),      "enforce | warn | audit")
+	anthropicKey := flag.String("anthropic-key",  envOr("ANTHROPIC_API_KEY",    ""),             "Anthropic API key (enables Claude analysis)")
+	jwtSecret    := flag.String("jwt-secret",     envOr("SHIELD_JWT_SECRET",    ""),             "JWT signing secret")
+	proxyToken   := flag.String("proxy-token",    envOr("SHIELD_PROXY_TOKEN",   ""),             "Pre-shared token for proxy agent reporting")
+	tlsCert      := flag.String("tls-cert",       envOr("SHIELD_TLS_CERT",      ""),             "Path to TLS certificate file (enables HTTPS on API port)")
+	tlsKey       := flag.String("tls-key",        envOr("SHIELD_TLS_KEY",       ""),             "Path to TLS private key file")
+	corsOrigin   := flag.String("cors-origin",    envOr("SHIELD_CORS_ORIGIN",   ""),             "Allowed CORS origin (e.g. https://shield.company.com); default: *")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -106,9 +109,18 @@ func main() {
 		log.Printf("[startup] WARNING: SHIELD_PROXY_TOKEN not set — proxy reporting unauthenticated (dev mode)")
 	}
 
-	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode)
-	if err := http.ListenAndServe(*apiAddr, srv); err != nil {
-		log.Fatalf("[server] fatal: %v", err)
+	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin)
+
+	if *tlsCert != "" && *tlsKey != "" {
+		log.Printf("[startup] TLS enabled — API + dashboard on https://%s", *apiAddr)
+		if err := http.ListenAndServeTLS(*apiAddr, *tlsCert, *tlsKey, srv); err != nil {
+			log.Fatalf("[server] fatal: %v", err)
+		}
+	} else {
+		log.Printf("[startup] TLS not configured — serving HTTP (set SHIELD_TLS_CERT + SHIELD_TLS_KEY for HTTPS)")
+		if err := http.ListenAndServe(*apiAddr, srv); err != nil {
+			log.Fatalf("[server] fatal: %v", err)
+		}
 	}
 }
 

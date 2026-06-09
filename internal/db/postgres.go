@@ -105,6 +105,18 @@ func (s *postgresStore) CountUsers() (int, error) {
 	return n, err
 }
 
+func (s *postgresStore) GetUserByID(userID string) (*shield.User, error) {
+	row := s.db.QueryRow(
+		`SELECT user_id, email, password_hash, role, created_at FROM users WHERE user_id = $1`, userID,
+	)
+	return scanUserRow(row)
+}
+
+func (s *postgresStore) UpdatePassword(userID, passwordHash string) error {
+	_, err := s.db.Exec(`UPDATE users SET password_hash = $1 WHERE user_id = $2`, passwordHash, userID)
+	return err
+}
+
 func (s *postgresStore) ListUsers() ([]shield.User, error) {
 	rows, err := s.db.Query(
 		`SELECT user_id, email, password_hash, role, created_at FROM users ORDER BY created_at ASC`,

@@ -162,6 +162,9 @@ pip config set global.index-url http://shield.internal:7070/simple/
 | `SHIELD_JWT_SECRET` | — | Required for dashboard auth. Generate with `openssl rand -hex 32`. |
 | `SHIELD_PROXY_TOKEN` | — | Pre-shared token for proxy agents reporting to the central server. Generate with `openssl rand -hex 32`. |
 | `SHIELD_SERVER_URL` | — | URL of the central server. When set on a dev machine, the proxy ships results there. |
+| `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set (with `SHIELD_TLS_KEY`), enables HTTPS on the API port. |
+| `SHIELD_TLS_KEY` | — | Path to TLS private key file. |
+| `SHIELD_CORS_ORIGIN` | `*` | Restrict CORS to a specific origin, e.g. `https://shield.company.com`. |
 | `SHIELD_DB_PATH` | `~/.cipher-shield/shield.db` | SQLite path (local mode) |
 | `DATABASE_URL` | — | Postgres DSN. When set, uses Postgres instead of SQLite. |
 

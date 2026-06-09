@@ -26,6 +26,8 @@ type Store interface {
 	// Users
 	CreateUser(email, passwordHash, role string) (*shield.User, error)
 	GetUserByEmail(email string) (*shield.User, error)
+	GetUserByID(userID string) (*shield.User, error)
+	UpdatePassword(userID, passwordHash string) error
 	CountUsers() (int, error)
 	ListUsers() ([]shield.User, error)
 

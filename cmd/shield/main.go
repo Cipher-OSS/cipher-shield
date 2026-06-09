@@ -566,6 +566,8 @@ func (n *noopStore) DeleteException(_ string) error                           { 
 func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error)           { return nil, nil }
 func (n *noopStore) CreateUser(_, _, _ string) (*shield.User, error)          { return nil, nil }
 func (n *noopStore) GetUserByEmail(_ string) (*shield.User, error)            { return nil, nil }
+func (n *noopStore) GetUserByID(_ string) (*shield.User, error)               { return nil, nil }
+func (n *noopStore) UpdatePassword(_, _ string) error                         { return nil }
 func (n *noopStore) CountUsers() (int, error)                                 { return 0, nil }
 func (n *noopStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
 func (n *noopStore) Migrate() error                                           { return nil }

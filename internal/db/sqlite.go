@@ -106,6 +106,18 @@ func (s *sqliteStore) CountUsers() (int, error) {
 	return n, err
 }
 
+func (s *sqliteStore) GetUserByID(userID string) (*shield.User, error) {
+	row := s.db.QueryRow(
+		`SELECT user_id, email, password_hash, role, created_at FROM users WHERE user_id = ?`, userID,
+	)
+	return scanUserRow(row)
+}
+
+func (s *sqliteStore) UpdatePassword(userID, passwordHash string) error {
+	_, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE user_id = ?`, passwordHash, userID)
+	return err
+}
+
 func (s *sqliteStore) ListUsers() ([]shield.User, error) {
 	rows, err := s.db.Query(
 		`SELECT user_id, email, password_hash, role, created_at FROM users ORDER BY created_at ASC`,

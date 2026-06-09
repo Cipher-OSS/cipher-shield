@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -163,6 +164,37 @@ func validateToken(token string, secret []byte) (*Claims, error) {
 		return nil, fmt.Errorf("token expired")
 	}
 	return &claims, nil
+}
+
+// POST /api/v1/users/{id}/reset-password — admin only
+func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Password) < 8 {
+		jsonError(w, "password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	user, err := s.store.GetUserByID(id)
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if user == nil {
+		jsonError(w, "user not found", http.StatusNotFound)
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
+	if err != nil {
+		jsonError(w, "password hashing failed", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdatePassword(id, string(hash)); err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "password updated"})
 }
 
 func hmacSign(secret []byte, data string) string {

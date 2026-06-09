@@ -33,11 +33,12 @@ type Server struct {
 	jwtSecret    []byte
 	proxyToken   []byte
 	mode         string     // enforce | warn | audit
+	corsOrigin   string     // allowed CORS origin; "*" if empty
 	loginLimiter *ipLimiter // per-IP rate limiter for login endpoint
 }
 
 // New creates a Server.
-func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode string) *Server {
+func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, corsOrigin string) *Server {
 	if mode == "" {
 		mode = "enforce"
 	}
@@ -48,6 +49,7 @@ func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode str
 		jwtSecret:    jwtSecret,
 		proxyToken:   proxyToken,
 		mode:         mode,
+		corsOrigin:   corsOrigin,
 		loginLimiter: newIPLimiter(1.0/12.0, 5), // 5 attempts per minute per IP
 	}
 	s.routes()
@@ -73,6 +75,7 @@ func (s *Server) routes() {
 	// Users (admin or bootstrap)
 	s.router.HandleFunc("/api/v1/users", s.requireAdmin(s.handleListUsers)).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/v1/users", s.requireAdminOrBootstrap(s.handleCreateUser)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/users/{id}/reset-password", s.requireAdmin(s.handleResetPassword)).Methods("POST", "OPTIONS")
 
 	// Proxy reporting (authenticated by pre-shared proxy token)
 	s.router.HandleFunc("/api/v1/report", s.requireProxyToken(s.handleReport)).Methods("POST", "OPTIONS")
@@ -351,7 +354,11 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := s.corsOrigin
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {
