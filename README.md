@@ -4,7 +4,7 @@ AI-powered package security firewall for npm and PyPI. Blocks malicious packages
 
 ## How it works
 
-Every package passes through four tiers of analysis in order. Each tier is faster and cheaper than the next; later tiers only run when earlier ones raise suspicion.
+Every package passes through two interception points and up to four tiers of analysis.
 
 ```
 npm install axios          pip install requests
@@ -13,6 +13,10 @@ npm install axios          pip install requests
 ┌─────────────────────────────────────────┐
 │          cipher-shield proxy            │
 │                                         │
+│  ── Intercept 1: metadata request ──   │
+│  Tier 1 — Known-bad list     (instant)  │
+│                                         │
+│  ── Intercept 2: tarball download ──   │
 │  Tier 1 — Known-bad list     (instant)  │
 │  Tier 2 — CVE / OSV.dev      (network)  │
 │  Tier 3 — Heuristic scan     (CPU)      │
@@ -25,6 +29,10 @@ npm install axios          pip install requests
    warn  → package installed, alert logged
    block → 403 returned, install aborted
 ```
+
+**Intercept 1 — metadata request**: When npm or pip asks the registry for package metadata, the proxy checks the package name against the known-bad list before the registry even responds. This catches packages that have been removed from the registry (no tarball exists to scan) and stops the install at the earliest possible point.
+
+**Intercept 2 — tarball download**: The full four-tier pipeline runs against the actual package file.
 
 **Tier 1 — Known-bad list**: ~30 confirmed malicious packages (event-stream, colourama, etc.) matched by name + version. Typosquatting detection via Levenshtein distance against 125+ popular npm and PyPI packages.
 
@@ -134,20 +142,57 @@ For shared infrastructure, run the server binary which combines the registry pro
 # Using docker-compose (recommended)
 cp configs/docker-compose.yml .
 SHIELD_JWT_SECRET=$(openssl rand -hex 32) \
+SHIELD_PROXY_TOKEN=$(openssl rand -hex 32) \
 ANTHROPIC_API_KEY=sk-ant-... \
 DB_PASSWORD=changeme \
 docker compose up -d
 
-# Proxy:     localhost:7070  →  point npm/pip here
+# Proxy:     localhost:7070
 # Dashboard: localhost:8080
 ```
 
-Point all developers at the shared proxy:
+---
+
+## Deployment
+
+### Model A — Central proxy (simplest)
+
+Everyone points their npm and pip at the team server. All analysis runs centrally.
 
 ```sh
+# On each dev machine
 npm config set registry http://shield.internal:7070
 pip config set global.index-url http://shield.internal:7070/simple/
 ```
+
+### Model C — Local proxy + central server (recommended for teams)
+
+Each developer runs `cipher-shield proxy start` on their own machine. Analysis runs locally for speed. The central server provides the dashboard, scan history, and exception management — and pushes exceptions back to each local proxy.
+
+```sh
+# On each dev machine — connect the local proxy to the team server
+export SHIELD_SERVER_URL=https://shield.internal:8080
+export SHIELD_PROXY_TOKEN=<shared token from server config>
+cipher-shield proxy start
+```
+
+When `SHIELD_SERVER_URL` is set, the local proxy:
+- Sends every scan result to the central server (visible on the dashboard)
+- Fetches the exception list from the server on startup and refreshes it every 60 seconds
+
+This means a security engineer can add an exception on the dashboard and it reaches all dev machines within a minute, without anyone restarting anything.
+
+### Cloud deployment guides
+
+Step-by-step guides for deploying the team server:
+
+| Cloud | Guide | Architecture | Est. cost |
+|---|---|---|---|
+| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | EC2 + RDS PostgreSQL | ~$30/mo |
+| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15/mo |
+| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Instances + PostgreSQL Flexible Server | ~$35/mo |
+
+All guides cover: database setup, container deployment, first-user bootstrap, dev machine configuration, and teardown.
 
 ---
 
@@ -160,8 +205,8 @@ pip config set global.index-url http://shield.internal:7070/simple/
 | `SHIELD_PROXY_ADDR` | `127.0.0.1:7070` | Proxy listen address |
 | `SHIELD_API_ADDR` | `:8080` | API + dashboard listen address (server only) |
 | `SHIELD_JWT_SECRET` | — | Required for dashboard auth. Generate with `openssl rand -hex 32`. |
-| `SHIELD_PROXY_TOKEN` | — | Pre-shared token for proxy agents reporting to the central server. Generate with `openssl rand -hex 32`. |
-| `SHIELD_SERVER_URL` | — | URL of the central server. When set on a dev machine, the proxy ships results there. |
+| `SHIELD_PROXY_TOKEN` | — | Pre-shared token authenticating dev proxies to the central server. Generate with `openssl rand -hex 32`. |
+| `SHIELD_SERVER_URL` | — | URL of the central server. When set, the local proxy ships scan results to the server and syncs exceptions from it. |
 | `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set (with `SHIELD_TLS_KEY`), enables HTTPS on the API port. |
 | `SHIELD_TLS_KEY` | — | Path to TLS private key file. |
 | `SHIELD_CORS_ORIGIN` | `*` | Restrict CORS to a specific origin, e.g. `https://shield.company.com`. |
@@ -170,23 +215,9 @@ pip config set global.index-url http://shield.internal:7070/simple/
 
 ---
 
-## Deployment
-
-Step-by-step guides for deploying the team server to each cloud:
-
-| Cloud | Guide | Architecture | Est. cost |
-|---|---|---|---|
-| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | EC2 + RDS PostgreSQL | ~$30/mo |
-| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15/mo |
-| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Instances + PostgreSQL Flexible Server | ~$35/mo |
-
-All guides cover: database setup, container deployment, first-user bootstrap, dev machine configuration, and teardown.
-
----
-
 ## Exceptions
 
-When a package is flagged but intentional, add an exception through the dashboard or API instead of disabling enforcement globally.
+When a package is flagged but intentional, add an exception through the dashboard or API. Exceptions are checked before any block verdict is returned — at both the metadata and tarball level.
 
 ```sh
 # Allow a specific version
@@ -195,29 +226,35 @@ curl -X POST http://localhost:8080/api/v1/exceptions \
   -H "Content-Type: application/json" \
   -d '{"ecosystem":"npm","name":"left-pad","version":"1.3.0","reason":"used by legacy build, reviewed"}'
 
-# Wildcard — allow all versions (use sparingly)
-  -d '{"ecosystem":"npm","name":"internal-lib","version":"","reason":"internal package"}'
+# Wildcard — allow all versions (use for packages you fully control)
+  -d '{"ecosystem":"npm","name":"@company/internal-lib","version":"","reason":"internal package"}'
 ```
 
-Exceptions are stored in the database and respected by all tiers. An excepted package returns `allow` immediately without running any analysis.
+**On the team server**: exceptions take effect immediately for all traffic flowing through the server's proxy.
+
+**On dev proxies (Model C)**: exceptions are synced from the server every 60 seconds. A newly added exception reaches all dev machines within a minute without any restart.
 
 ---
 
 ## API
 
-All endpoints except `/api/v1/health` require `Authorization: Bearer <jwt>`.
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/v1/health` | Liveness check |
-| `POST` | `/api/v1/auth/login` | `{email, password}` → `{token}` |
-| `GET` | `/api/v1/auth/me` | Current user from JWT |
-| `POST` | `/api/v1/scan/package` | Scan `{ecosystem, name, version}` |
-| `POST` | `/api/v1/scan/lockfile` | Scan uploaded lockfile |
-| `GET` | `/api/v1/history` | Recent scan results |
-| `GET` | `/api/v1/exceptions` | List exceptions |
-| `POST` | `/api/v1/exceptions` | Add exception |
-| `DELETE` | `/api/v1/exceptions/{id}` | Remove exception |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/health` | none | Liveness check |
+| `GET` | `/api/v1/config` | none | Server capabilities (`auth_enabled`, `mode`, `version`) |
+| `POST` | `/api/v1/auth/login` | none | `{email, password}` → `{token}` |
+| `GET` | `/api/v1/auth/me` | JWT | Current user from token |
+| `GET` | `/api/v1/users` | admin JWT | List all users |
+| `POST` | `/api/v1/users` | admin JWT (or none when empty) | Create user; first user auto-becomes admin |
+| `POST` | `/api/v1/users/{id}/reset-password` | admin JWT | Reset a user's password |
+| `POST` | `/api/v1/scan/package` | JWT | Scan `{ecosystem, name, version}` |
+| `POST` | `/api/v1/scan/lockfile` | JWT | Scan uploaded lockfile |
+| `GET` | `/api/v1/history` | JWT | Recent scan results |
+| `GET` | `/api/v1/exceptions` | JWT | List exceptions |
+| `POST` | `/api/v1/exceptions` | JWT | Add exception |
+| `DELETE` | `/api/v1/exceptions/{id}` | JWT | Remove exception |
+| `POST` | `/api/v1/report` | proxy token | Dev proxy ships a scan result to the server |
+| `GET` | `/api/v1/proxy/exceptions` | proxy token | Dev proxy fetches the current exception list |
 
 ---
 
@@ -251,8 +288,9 @@ internal/
     cve/        OSV.dev CVE lookup
     heuristic/  Tarball scoring — regex patterns on install scripts
     claude/     Claude Opus deep analysis
-  proxy/        HTTP forward proxy — intercepts npm/pip tarballs
+  proxy/        HTTP proxy — intercepts npm/pip metadata + tarballs
   proxyctl/     PID management, npm/pip registry save/restore
+  reporter/     Ships scan results to central server; caches exception list
   lockfile/     Parsers for package-lock.json, yarn.lock, requirements.txt, poetry.lock
   db/           Store interface — SQLite (local) + Postgres (team)
   api/          REST API + JWT auth
