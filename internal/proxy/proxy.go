@@ -116,6 +116,12 @@ func (p *Proxy) serve(conn net.Conn) {
 	req.URL = upstreamURL(req)
 	req.Host = req.URL.Host
 
+	// Rewrite PyPI simple API responses so download URLs route through this proxy
+	if isPyPISimple(req.URL.Path) {
+		p.handlePyPISimple(conn, req)
+		return
+	}
+
 	// Check if this is a tarball request we should intercept
 	pkg, isTarball := detectTarball(req)
 	if isTarball && p.cfg.Pipeline != nil {
@@ -268,18 +274,68 @@ func normalizePyPI(name string) string {
 	return strings.ReplaceAll(name, ".", "-")
 }
 
+func isPyPISimple(path string) bool {
+	return strings.HasPrefix(path, "/simple/") && !strings.HasPrefix(path, "/packages/")
+}
+
+// handlePyPISimple fetches a PyPI simple API page and rewrites all download
+// URLs to route back through this proxy, so the tarball intercept fires.
+func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
+	upstream := *req.URL
+	upstream.Scheme = "https"
+	upstream.Host = "pypi.org"
+	upReq, err := http.NewRequest("GET", upstream.String(), nil)
+	if err != nil {
+		writeError(conn, http.StatusBadGateway, "bad simple request")
+		return
+	}
+	upReq.Header.Set("Accept", req.Header.Get("Accept"))
+	upReq.Header.Set("User-Agent", req.Header.Get("User-Agent"))
+
+	resp, err := p.transport.RoundTrip(upReq)
+	if err != nil {
+		writeError(conn, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		writeError(conn, http.StatusBadGateway, "read error")
+		return
+	}
+
+	// Rewrite https://files.pythonhosted.org/packages/... → /packages/...
+	// so pip downloads tarballs through this proxy instead of directly.
+	rewritten := strings.ReplaceAll(string(body), "https://files.pythonhosted.org", "http://"+p.cfg.ListenAddr)
+
+	resp.Body = io.NopCloser(strings.NewReader(rewritten))
+	resp.ContentLength = int64(len(rewritten))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
+	resp.Write(conn)
+}
+
 // upstreamURL rewrites the request URL to point to the real upstream registry.
 // npm proxy: point to registry.npmjs.org
-// PyPI proxy: point to pypi.org
+// PyPI proxy: detect by path prefix since the client always hits 127.0.0.1
 func upstreamURL(req *http.Request) *url.URL {
 	u := *req.URL
-	host := strings.ToLower(req.Host)
+	path := req.URL.Path
 	switch {
-	case strings.Contains(host, "pypi"):
-		u.Host = "pypi.org"
+	case isPyPIPath(path):
+		if strings.HasPrefix(path, "/packages/") {
+			// Tarball download — hosted on files.pythonhosted.org, not pypi.org
+			u.Host = "files.pythonhosted.org"
+		} else {
+			u.Host = "pypi.org"
+		}
 	default:
 		u.Host = "registry.npmjs.org"
 	}
 	u.Scheme = "https"
 	return &u
+}
+
+func isPyPIPath(path string) bool {
+	return strings.HasPrefix(path, "/simple/") || strings.HasPrefix(path, "/packages/")
 }
