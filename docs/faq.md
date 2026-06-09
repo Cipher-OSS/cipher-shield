@@ -322,6 +322,70 @@ npm/pip config is managed identically on Windows (`cipher-shield` calls `npm con
 
 ---
 
+## Linux
+
+### Managing the systemd user service
+
+The installer creates a user-level systemd unit (no root required). Useful commands:
+
+```sh
+# Check whether the service is running
+systemctl --user status cipher-shield
+
+# View live logs
+journalctl --user -u cipher-shield -f
+
+# Stop the service
+systemctl --user stop cipher-shield
+
+# Disable auto-start on login
+systemctl --user disable cipher-shield
+
+# Re-enable and start
+systemctl --user enable --now cipher-shield
+```
+
+The unit file lives at `~/.config/systemd/user/cipher-shield.service` if you need to edit it (e.g. to change the listen address or mode).
+
+### The service starts but npm/pip installs still go to the public registry
+
+The systemd service runs `cipher-shield proxy start`, which sets npm/pip config in your user environment. If you opened a terminal before the service started, that shell's environment may have cached the old registry value.
+
+**Fix:** Open a new terminal, or re-source your shell config:
+
+```sh
+# Verify it's been set
+npm config get registry       # should be http://127.0.0.1:7070
+pip config get global.index-url  # should be http://127.0.0.1:7070/simple/
+```
+
+### snap or flatpak npm/pip isn't being intercepted
+
+Snap and Flatpak apps run in isolated environments and ignore your user-level `~/.npmrc` and `~/.config/pip/pip.conf`. If your team uses `snap install node`, the npm inside that snap won't route through the proxy.
+
+**Fix:** Use the `cipher-shield scan lockfile` CLI in CI instead of relying on the proxy for snap-managed runtimes. Alternatively, switch to a non-snap Node.js install (e.g. [nvm](https://github.com/nvm-sh/nvm) or the NodeSource apt repo).
+
+### Port 7070 is already in use
+
+```sh
+# Find what's using it
+ss -tlnp | grep 7070
+# or
+lsof -i :7070
+
+# Start on a different port
+cipher-shield proxy start --addr 127.0.0.1:7071
+```
+
+If you change the port, update npm and pip manually:
+
+```sh
+npm config set registry http://127.0.0.1:7071
+pip config set global.index-url http://127.0.0.1:7071/simple/
+```
+
+---
+
 ## macOS Gatekeeper
 
 On macOS, a downloaded binary may be blocked ("cipher-shield cannot be opened because the developer cannot be verified"). Remove the quarantine attribute:
