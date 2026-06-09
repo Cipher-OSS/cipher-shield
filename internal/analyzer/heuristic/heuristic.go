@@ -33,8 +33,9 @@ const (
 // Result is returned alongside findings to let the pipeline decide
 // whether to invoke Claude.
 type Result struct {
-	Score    int
-	Findings []shield.Finding
+	Score     int
+	Findings  []shield.Finding
+	HasReadme bool
 }
 
 type heuristicAnalyzer struct{}
@@ -53,7 +54,7 @@ func (h *heuristicAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, ta
 	if err != nil {
 		return nil, nil // non-fatal: can't extract = pass through
 	}
-	res := analyzeFiles(r)
+	res := analyzeFiles(r.files, r.hasReadme)
 	return res.Findings, nil
 }
 
@@ -72,7 +73,7 @@ func Score(pkg shield.PackageRef, tarball []byte) int {
 	if err != nil {
 		return 0
 	}
-	return analyzeFiles(r).Score
+	return analyzeFiles(r.files, r.hasReadme).Score
 }
 
 // fileEntry holds the path and content of a file extracted from the tarball.
@@ -81,20 +82,61 @@ type fileEntry struct {
 	content []byte
 }
 
+type extractResult struct {
+	files     []fileEntry
+	hasReadme bool
+}
+
 // extract unpacks an npm .tgz or PyPI .whl/.tar.gz into memory.
 // Returns at most 200 files (install scripts + source files).
-func extract(eco shield.Ecosystem, data []byte) ([]fileEntry, error) {
+func extract(eco shield.Ecosystem, data []byte) (extractResult, error) {
 	switch eco {
 	case shield.EcosystemNPM:
-		return extractTGZ(data)
+		files, err := extractTGZ(data)
+		return extractResult{files: files, hasReadme: tgzHasReadme(data)}, err
 	case shield.EcosystemPyPI:
 		// Try zip (wheel) first, then tar.gz (sdist)
 		if files, err := extractZip(data); err == nil {
-			return files, nil
+			return extractResult{files: files, hasReadme: zipHasReadme(data)}, nil
 		}
-		return extractTGZ(data)
+		files, err := extractTGZ(data)
+		return extractResult{files: files, hasReadme: tgzHasReadme(data)}, err
 	}
-	return nil, fmt.Errorf("unknown ecosystem")
+	return extractResult{}, fmt.Errorf("unknown ecosystem")
+}
+
+// tgzHasReadme scans all entries in a .tar.gz without the file limit, checking for a README.
+func tgzHasReadme(data []byte) bool {
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		if strings.HasPrefix(strings.ToLower(filepath.Base(hdr.Name)), "readme") {
+			return true
+		}
+	}
+	return false
+}
+
+// zipHasReadme scans all entries in a .zip without the file limit, checking for a README.
+func zipHasReadme(data []byte) bool {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return false
+	}
+	for _, f := range r.File {
+		if strings.HasPrefix(strings.ToLower(filepath.Base(f.Name)), "readme") {
+			return true
+		}
+	}
+	return false
 }
 
 func extractTGZ(data []byte) ([]fileEntry, error) {
@@ -184,7 +226,7 @@ var (
 	reRemoteScript    = regexp.MustCompile("(?i)(curl|wget).{0,50}(sh|bash|python|node)\\b")
 )
 
-func analyzeFiles(files []fileEntry) Result {
+func analyzeFiles(files []fileEntry, hasReadme bool) Result {
 	var res Result
 	addFinding := func(score int, sev shield.Severity, title, desc string) {
 		res.Score += score
@@ -197,15 +239,10 @@ func analyzeFiles(files []fileEntry) Result {
 	}
 
 	installScriptCount := 0
-	hasReadme := false
 
 	for _, f := range files {
 		base := strings.ToLower(filepath.Base(f.path))
 		content := string(f.content)
-
-		if strings.HasPrefix(base, "readme") {
-			hasReadme = true
-		}
 
 		// package.json: check lifecycle scripts
 		if base == "package.json" {
