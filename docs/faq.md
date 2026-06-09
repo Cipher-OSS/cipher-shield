@@ -71,14 +71,14 @@ cipher-shield proxy start
 
 Some VPN clients (Cisco AnyConnect, GlobalProtect) also push DNS or split-tunnel rules that intercept `127.0.0.1` traffic. If restarts don't help, check whether your VPN is routing loopback traffic — this is a VPN misconfiguration and needs to be fixed at the VPN policy level.
 
-### Docker containers can't reach the internet after proxy starts
+### Docker containers can't reach the internet after connecting VPN
 
-If you're running Docker on Linux and the proxy starts, Docker containers may lose internet access. This is caused by VPN clients wiping the iptables NAT rule Docker needs for outbound traffic.
+This isn't caused by cipher-shield — it's a known side effect of many VPN clients (Cisco AnyConnect, GlobalProtect, etc.) on Linux. When VPN connects, it rewrites iptables rules and can wipe the NAT rule Docker needs for outbound traffic. It can happen on any machine running Docker, regardless of whether cipher-shield is installed.
 
 **Diagnosis:**
 ```sh
 sudo iptables -t nat -L POSTROUTING -n | grep MASQUERADE
-# If this returns nothing, the rule is missing
+# If this returns nothing, Docker's NAT rule is gone
 ```
 
 **Fix (non-destructive, survives until next reboot):**
@@ -86,7 +86,7 @@ sudo iptables -t nat -L POSTROUTING -n | grep MASQUERADE
 sudo iptables -t nat -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
 ```
 
-**Permanent fix:** Add the rule to your VPN reconnect hook, or configure Docker to use a fixed subnet and add it to your iptables-persistent rules.
+**Permanent fix:** Add the rule to your VPN reconnect hook, or add it to `/etc/iptables/rules.v4` via iptables-persistent.
 
 ### The proxy works on my machine but not in CI
 
@@ -147,6 +147,55 @@ If the heuristic scored a package high but it looks clean on inspection, this is
 Tier 1 (known-bad list) and Tier 3 (heuristic) can block packages that have no CVE assigned yet. A typosquatter with no CVE will still be caught by Levenshtein distance matching against popular package names.
 
 If you believe a Tier 1 or Tier 3 block is wrong, please [open an issue](https://github.com/homes853/cipher-shield/issues) with the package name and version.
+
+---
+
+## Docker
+
+cipher-shield's Docker image (`ghcr.io/homes853/cipher-shield`) is for running the **team server** — not the dev workstation proxy. The dev-side proxy (`cipher-shield proxy start`) runs as a native binary directly on each developer's machine and is not Dockerized.
+
+### Running the team server in Docker
+
+The recommended way is `docker-compose`:
+
+```sh
+cp configs/docker-compose.yml .
+SHIELD_JWT_SECRET=$(openssl rand -hex 32) \
+SHIELD_PROXY_TOKEN=$(openssl rand -hex 32) \
+DB_PASSWORD=$(openssl rand -hex 16) \
+ANTHROPIC_API_KEY=sk-ant-... \
+docker compose up -d
+```
+
+This starts two containers: the cipher-shield server (ports 7070 + 8080) and a Postgres database. See the deployment guides for cloud-specific setups.
+
+### The container starts but port 7070 doesn't respond
+
+The container exposes both ports, but the registry proxy (7070) only makes sense for dev machines that can route `npm install` traffic to it. In a typical setup you'd point developers at the server's IP:
+
+```sh
+# On each dev machine
+npm config set registry http://shield.internal:7070
+pip config set global.index-url http://shield.internal:7070/simple/
+```
+
+If the proxy port isn't responding, check that Docker published the port correctly:
+
+```sh
+docker ps | grep cipher-shield
+# Should show: 0.0.0.0:7070->7070/tcp, 0.0.0.0:8080->8080/tcp
+```
+
+### Environment variables aren't reaching the container
+
+Docker Compose reads from the `.env` file in the same directory, or from variables exported in your shell. If secrets aren't being picked up:
+
+```sh
+# Confirm they're in scope
+docker compose config | grep -E "JWT|TOKEN|PASSWORD"
+```
+
+For production, use Docker secrets or your cloud provider's secret manager rather than plain environment variables. See the TLS + secrets sections in the relevant deployment guide.
 
 ---
 
