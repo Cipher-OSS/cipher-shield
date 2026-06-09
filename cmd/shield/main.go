@@ -463,16 +463,19 @@ func proxyStart(args []string) {
 	fmt.Println("  Press Ctrl+C to stop and restore original settings.")
 
 	proxyCfg := proxy.Config{
-		ListenAddr: addr,
-		Mode:       proxy.Mode(envOr("SHIELD_MODE", "enforce")),
-		Pipeline:   pl,
+		ListenAddr:  addr,
+		Mode:        proxy.Mode(envOr("SHIELD_MODE", "enforce")),
+		Pipeline:    pl,
+		NameChecker: pl,
 	}
 	if serverURL := envOr("SHIELD_SERVER_URL", ""); serverURL != "" {
 		token := envOr("SHIELD_PROXY_TOKEN", "")
 		proxyCfg.Reporter = reporter.New(serverURL, token)
+		proxyCfg.Exceptions = reporter.NewExceptionCache(serverURL, token)
 		fmt.Printf("✓ reporting results to %s\n", serverURL)
+		fmt.Printf("✓ syncing exceptions from %s\n", serverURL)
 		if token == "" {
-			fmt.Fprintln(os.Stderr, "  [warn] SHIELD_PROXY_TOKEN not set — reports will be unauthenticated")
+			fmt.Fprintln(os.Stderr, "  [warn] SHIELD_PROXY_TOKEN not set — reports and exceptions will be unauthenticated")
 		}
 	}
 	if err := proxy.New(proxyCfg).Start(); err != nil {

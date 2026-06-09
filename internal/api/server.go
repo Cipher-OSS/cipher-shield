@@ -77,8 +77,9 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/v1/users", s.requireAdminOrBootstrap(s.handleCreateUser)).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/users/{id}/reset-password", s.requireAdmin(s.handleResetPassword)).Methods("POST", "OPTIONS")
 
-	// Proxy reporting (authenticated by pre-shared proxy token)
+	// Proxy reporting + exception sync (authenticated by pre-shared proxy token)
 	s.router.HandleFunc("/api/v1/report", s.requireProxyToken(s.handleReport)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/proxy/exceptions", s.requireProxyToken(s.handleProxyExceptions)).Methods("GET", "OPTIONS")
 
 	// Scan
 	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.handleScanPackage)).Methods("POST", "OPTIONS")
@@ -286,6 +287,19 @@ func (s *Server) handleDeleteException(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]string{"status": "deleted"})
+}
+
+// GET /api/v1/proxy/exceptions — proxy token auth; lets dev proxies sync the exception list.
+func (s *Server) handleProxyExceptions(w http.ResponseWriter, r *http.Request) {
+	list, err := s.store.ListExceptions()
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []shield.Exception{}
+	}
+	jsonOK(w, map[string]interface{}{"exceptions": list})
 }
 
 // GET /api/v1/users — admin only

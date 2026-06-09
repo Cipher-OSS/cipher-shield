@@ -31,6 +31,16 @@ type Analyzer interface {
 	Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) (*shield.ScanResult, error)
 }
 
+// NameChecker runs Tier 1 against a package name only (no tarball required).
+type NameChecker interface {
+	CheckName(ctx context.Context, pkg shield.PackageRef) ([]shield.Finding, error)
+}
+
+// ExceptionChecker reports whether a package is on the server-managed exception list.
+type ExceptionChecker interface {
+	IsExcepted(eco shield.Ecosystem, name, version string) bool
+}
+
 // ResultReporter ships scan results to a central server.
 type ResultReporter interface {
 	Report(result *shield.ScanResult)
@@ -38,11 +48,13 @@ type ResultReporter interface {
 
 // Config holds proxy startup configuration.
 type Config struct {
-	ListenAddr   string         // e.g. "127.0.0.1:7070"
+	ListenAddr   string          // e.g. "127.0.0.1:7070"
 	Mode         Mode
-	MaxBodyBytes int64          // max tarball to buffer (default 50MB)
-	Pipeline     Analyzer       // nil = pass everything through (audit)
-	Reporter     ResultReporter // nil = local-only, no central reporting
+	MaxBodyBytes int64           // max tarball to buffer (default 50MB)
+	Pipeline     Analyzer        // nil = pass everything through (audit)
+	NameChecker  NameChecker     // nil = no metadata-level Tier 1 check
+	Exceptions   ExceptionChecker // nil = no server-side exception sync
+	Reporter     ResultReporter  // nil = local-only, no central reporting
 }
 
 // Proxy is the package registry interception proxy.
@@ -116,7 +128,7 @@ func (p *Proxy) serve(conn net.Conn) {
 	req.URL = upstreamURL(req)
 	req.Host = req.URL.Host
 
-	// Rewrite PyPI simple API responses so download URLs route through this proxy
+	// PyPI simple API — rewrite download URLs and optionally check package name
 	if isPyPISimple(req.URL.Path) {
 		p.handlePyPISimple(conn, req)
 		return
@@ -127,6 +139,15 @@ func (p *Proxy) serve(conn net.Conn) {
 	if isTarball && p.cfg.Pipeline != nil {
 		p.handleTarball(conn, req, pkg)
 		return
+	}
+
+	// npm metadata request — check package name against Tier 1 before forwarding
+	if name, ok := detectNPMMeta(req); ok {
+		if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
+			writeError(conn, http.StatusForbidden, fmt.Sprintf(
+				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", name, name))
+			return
+		}
 	}
 
 	// All other requests: transparent proxy
@@ -179,6 +200,12 @@ func (p *Proxy) handleTarball(conn net.Conn, req *http.Request, pkg shield.Packa
 
 	// Block if verdict is block and mode is enforce
 	if result.Verdict == shield.VerdictBlock && p.cfg.Mode == ModeEnforce {
+		// Check server exception list before returning 403
+		if p.cfg.Exceptions != nil && p.cfg.Exceptions.IsExcepted(pkg.Ecosystem, pkg.Name, pkg.Version) {
+			log.Printf("[proxy] %s@%s blocked by pipeline but excepted — passing through", pkg.Name, pkg.Version)
+			p.forwardResponse(conn, upResp, tarball)
+			return
+		}
 		reason := "malicious package blocked by cipher-shield"
 		if len(result.Findings) > 0 {
 			reason = result.Findings[0].Title
@@ -278,9 +305,61 @@ func isPyPISimple(path string) bool {
 	return strings.HasPrefix(path, "/simple/") && !strings.HasPrefix(path, "/packages/")
 }
 
+// shouldBlockName checks a package name against Tier 1 and the exception list.
+// Returns true only in enforce mode when the name is known-bad and not excepted.
+func (p *Proxy) shouldBlockName(ctx context.Context, eco shield.Ecosystem, name string) bool {
+	if p.cfg.NameChecker == nil || p.cfg.Mode != ModeEnforce {
+		return false
+	}
+	pkg := shield.PackageRef{Ecosystem: eco, Name: name}
+	findings, err := p.cfg.NameChecker.CheckName(ctx, pkg)
+	if err != nil || len(findings) == 0 {
+		return false
+	}
+	for _, f := range findings {
+		if f.Severity == shield.SeverityCritical || f.Severity == shield.SeverityHigh {
+			if p.cfg.Exceptions != nil && p.cfg.Exceptions.IsExcepted(eco, name, "") {
+				log.Printf("[proxy] name check: %s (%s) blocked but excepted — passing through", name, eco)
+				return false
+			}
+			log.Printf("[proxy] name check: %s (%s) blocked at metadata level", name, eco)
+			return true
+		}
+	}
+	return false
+}
+
+// detectNPMMeta returns the package name if the request is an npm metadata
+// lookup (not a tarball). Scoped packages (@scope/name) are handled correctly.
+var npmMetaRe = regexp.MustCompile(`^/(@[^/]+/[^/]+|[^@/][^/]*)`)
+
+func detectNPMMeta(req *http.Request) (string, bool) {
+	if req.Method != "GET" {
+		return "", false
+	}
+	path := req.URL.Path
+	if npmTarballRe.MatchString(path) || isPyPIPath(path) {
+		return "", false
+	}
+	m := npmMetaRe.FindStringSubmatch(path)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
 // handlePyPISimple fetches a PyPI simple API page and rewrites all download
 // URLs to route back through this proxy, so the tarball intercept fires.
 func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
+	// Extract package name from /simple/<name>/ and check Tier 1
+	parts := strings.SplitN(strings.Trim(req.URL.Path, "/"), "/", 3)
+	if len(parts) >= 2 && parts[0] == "simple" && parts[1] != "" {
+		if p.shouldBlockName(context.Background(), shield.EcosystemPyPI, parts[1]) {
+			writeError(conn, http.StatusForbidden, fmt.Sprintf(
+				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", parts[1], parts[1]))
+			return
+		}
+	}
 	upstream := *req.URL
 	upstream.Scheme = "https"
 	upstream.Host = "pypi.org"

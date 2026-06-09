@@ -210,6 +210,15 @@ func hasHighCVSS(findings []shield.Finding, threshold float64) bool {
 	return false
 }
 
+// CheckName runs only Tier 1 (known-bad + typosquatting) against a package name.
+// Used by the proxy for metadata-level checks without needing a tarball.
+func (p *Pipeline) CheckName(ctx context.Context, pkg shield.PackageRef) ([]shield.Finding, error) {
+	if p.badlist == nil {
+		return nil, nil
+	}
+	return p.badlist.Analyze(ctx, pkg, nil)
+}
+
 func newScanID() string {
 	return fmt.Sprintf("scan-%d", time.Now().UnixNano())
 }

@@ -63,7 +63,9 @@ func (b *badlistAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, _ []
 
 	var findings []shield.Finding
 	for _, e := range entries {
-		if e.Version != "*" && e.Version != "" && e.Version != pkg.Version {
+		// Empty pkg.Version = name-only check (metadata level) — match any version entry.
+		// Non-empty pkg.Version = tarball check — match only the specific version or wildcard.
+		if pkg.Version != "" && e.Version != "*" && e.Version != "" && e.Version != pkg.Version {
 			continue
 		}
 		findings = append(findings, shield.Finding{
