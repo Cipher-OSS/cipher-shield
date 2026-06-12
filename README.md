@@ -1,6 +1,6 @@
 # cipher-shield
 
-AI-powered package security firewall for npm and PyPI. Blocks malicious packages before they install — on dev workstations and in CI.
+AI-powered package security firewall for npm and PyPI. Blocks malicious packages before they install — on developer workstations and in CI.
 
 ## How it works
 
@@ -26,15 +26,15 @@ npm install axios          pip install requests
 └─────────────────────────────────────────┘
         │
    allow → package downloaded normally
-   warn  → package installed, alert logged
+   warn  → package installed, warning logged
    block → 403 returned, install aborted
 ```
 
-**Intercept 1 — metadata request**: When npm or pip asks the registry for package metadata, the proxy checks the package name against the known-bad list before the registry even responds. This catches packages that have been removed from the registry (no tarball exists to scan) and stops the install at the earliest possible point.
+**Intercept 1 — metadata request**: When npm or pip asks the registry for package metadata, the proxy checks the name against the known-bad list before the registry even responds. This catches packages that have been removed from the registry (no tarball to scan) and stops the install at the earliest possible point.
 
 **Intercept 2 — tarball download**: The full four-tier pipeline runs against the actual package file.
 
-**Tier 1 — Known-bad list**: ~30 confirmed malicious packages (event-stream, colourama, etc.) matched by name + version. Typosquatting detection via Levenshtein distance against 125+ popular npm and PyPI packages.
+**Tier 1 — Known-bad list**: Confirmed malicious packages (event-stream, colourama, etc.) matched by name and version. Typosquatting detection via Levenshtein distance against 125+ popular npm and PyPI packages.
 
 **Tier 2 — CVE**: Queries [OSV.dev](https://osv.dev) for known vulnerabilities. No API key required.
 
@@ -42,37 +42,81 @@ npm install axios          pip install requests
 
 **Tier 4 — Claude Opus**: Runs only when the heuristic score ≥ 30 or a high-CVSS CVE is found. Claude reads the actual install scripts and source code and returns a structured verdict with reasoning. This is the main differentiator — real code comprehension, not just signatures.
 
-Results are cached (24 h for clean, 1 h for warn/block) so each unique package version is only analyzed once.
+Results are cached (24 h for clean packages, 1 h for warn/block) so each unique package version is only analyzed once across your team.
+
+---
+
+## Quickstart for teams
+
+This is the recommended path for engineering organizations. It takes about 10 minutes.
+
+**1. Deploy the team server**
+
+```sh
+git clone https://github.com/homes853/cipher-shield
+cd cipher-shield
+
+# Generate secrets
+export SHIELD_JWT_SECRET=$(openssl rand -hex 32)
+export SHIELD_PROXY_TOKEN=$(openssl rand -hex 32)
+export DB_PASSWORD=$(openssl rand -hex 16)
+export ANTHROPIC_API_KEY=sk-ant-...   # optional but recommended
+
+docker compose -f configs/docker-compose.yml up -d
+```
+
+The server starts two listeners:
+- `:7070` — registry proxy (point npm/pip here)
+- `:8080` — web dashboard + REST API
+
+**2. Create your first admin account**
+
+The first `POST /api/v1/users` request requires no authentication and creates an admin account. After that, the endpoint requires an admin JWT.
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@company.com","password":"changeme","role":"admin"}' | jq
+```
+
+Open `http://localhost:8080` and log in.
+
+**3. Configure developer machines**
+
+Each developer runs the local proxy, connected to the team server:
+
+```sh
+export SHIELD_SERVER_URL=https://shield.internal:8080
+export SHIELD_PROXY_TOKEN=<the token from step 1>
+cipher-shield proxy start
+```
+
+That's it. All npm and pip installs are now screened. Scan results appear on the team dashboard in real time. Exceptions added on the dashboard sync to all dev machines within 60 seconds.
 
 ---
 
 ## Install
 
-### Dev workstation (one-liner)
+### Developer workstation (one-liner)
 
 ```sh
+export ANTHROPIC_API_KEY=sk-ant-...   # optional — enables Claude analysis
 curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/install.sh | sh
 ```
 
 The installer:
 - Downloads the `cipher-shield` binary to `/usr/local/bin`
-- Installs a macOS LaunchAgent or Linux systemd user unit so the proxy starts automatically on login
-- Saves your `ANTHROPIC_API_KEY` to `~/.cipher-shield/cipher-shield.env`
-
-To enable Claude Opus analysis, set your API key before running:
-
-```sh
-export ANTHROPIC_API_KEY=sk-ant-...
-curl -fsSL .../install.sh | sh
-```
+- Installs a macOS LaunchAgent or Linux systemd user unit so the proxy starts on login
+- Saves `ANTHROPIC_API_KEY` to `~/.cipher-shield/cipher-shield.env`
 
 ### Build from source
 
 ```sh
 git clone https://github.com/homes853/cipher-shield
 cd cipher-shield
-go build ./cmd/shield     # CLI + proxy daemon
+go build ./cmd/shield     # CLI + local proxy daemon
 go build ./cmd/server     # team server (proxy + API + dashboard)
+go build ./cmd/proxy      # standalone proxy (lightweight, no dashboard)
 ```
 
 Requires Go 1.22+. CGO must be enabled for SQLite (`go-sqlite3`).
@@ -92,32 +136,32 @@ npm install lodash          # passes through
 npm install colourama       # BLOCKED — known typosquatter of colorama
 pip install reqeusts        # BLOCKED — typosquatter of requests
 
-# Stop — restores original npm/pip config
+# Stop — restores original npm/pip configuration
 cipher-shield proxy stop
 
 # Status
 cipher-shield proxy status
 ```
 
-The proxy listens on `127.0.0.1:7070` by default. Change with `--addr` or `SHIELD_PROXY_ADDR`.
+The proxy listens on `127.0.0.1:7070` by default. Change with `SHIELD_PROXY_ADDR`.
 
 ### CLI scan
 
 ```sh
-# Scan a lockfile (all packages, no tarball — tiers 1+2 only)
+# Scan a lockfile (fast — Tier 1+2 only, no tarball download)
 cipher-shield scan lockfile package-lock.json
 cipher-shield scan lockfile requirements.txt
 cipher-shield scan lockfile yarn.lock
 cipher-shield scan lockfile poetry.lock
 
-# Scan a single package (downloads tarball — all four tiers)
+# Scan a single package (downloads tarball — all four tiers run)
 cipher-shield scan package lodash@4.17.21
 cipher-shield scan package requests@2.31.0 --ecosystem pypi
 
-# Exit codes for CI integration:
-# 0 — all clean
-# 1 — one or more warnings
-# 2 — one or more blocked packages
+# Exit codes:
+#  0 — all packages clean
+#  1 — one or more warnings
+#  2 — one or more blocked packages
 ```
 
 Example output:
@@ -134,12 +178,22 @@ Scanning 147 packages from package-lock.json...
 Summary: 146 clean, 0 warn, 1 block
 ```
 
-### Team server
+### Update the known-bad list
 
-For shared infrastructure, run the server binary which combines the registry proxy, REST API, and web dashboard on a single process:
+The known-bad list is embedded at build time. To fetch the latest list without rebuilding:
 
 ```sh
-# Using docker-compose (recommended)
+cipher-shield update
+```
+
+This downloads the latest `known_bad.json` to `~/.cipher-shield/known_bad.json`, which takes precedence over the embedded list on the next proxy start.
+
+### Team server
+
+For shared infrastructure, run the server binary which combines the registry proxy, REST API, and web dashboard:
+
+```sh
+# Using Docker Compose (recommended)
 cp configs/docker-compose.yml .
 SHIELD_JWT_SECRET=$(openssl rand -hex 32) \
 SHIELD_PROXY_TOKEN=$(openssl rand -hex 32) \
@@ -151,36 +205,47 @@ docker compose up -d
 # Dashboard: localhost:8080
 ```
 
+After starting the server, create your first admin user (see [Quickstart](#quickstart-for-teams)).
+
 ---
 
 ## Deployment
 
 ### Model A — Central proxy (simplest)
 
-Everyone points their npm and pip at the team server. All analysis runs centrally.
+The team server acts as the registry. All developer machines point their npm and pip directly at it. No local agent required.
 
 ```sh
-# On each dev machine
+# Run once on each developer machine (or push via MDM/Ansible)
 npm config set registry http://shield.internal:7070
 pip config set global.index-url http://shield.internal:7070/simple/
 ```
 
-### Model C — Local proxy + central server (recommended for teams)
+Best for: small teams, locked-down environments, CI-only usage.
 
-Each developer runs `cipher-shield proxy start` on their own machine. Analysis runs locally for speed. The central server provides the dashboard, scan history, and exception management — and pushes exceptions back to each local proxy.
+### Model B — Local proxy, no central server
+
+Each developer runs `cipher-shield proxy start` on their own machine. Analysis runs locally. No central server or dashboard — scan results stay on the developer's machine.
 
 ```sh
-# On each dev machine — connect the local proxy to the team server
-export SHIELD_SERVER_URL=https://shield.internal:8080
-export SHIELD_PROXY_TOKEN=<shared token from server config>
+# On each developer machine
 cipher-shield proxy start
 ```
 
-When `SHIELD_SERVER_URL` is set, the local proxy:
-- Sends every scan result to the central server (visible on the dashboard)
-- Fetches the exception list from the server on startup and refreshes it every 60 seconds
+Best for: individual developers, open source contributors, offline environments.
 
-This means a security engineer can add an exception on the dashboard and it reaches all dev machines within a minute, without anyone restarting anything.
+### Model C — Local proxy + central server (recommended)
+
+Each developer runs `cipher-shield proxy start` locally. Analysis runs on the developer's machine for speed. The central server provides the shared dashboard, scan history, and exception management. Exceptions sync to all local proxies every 60 seconds.
+
+```sh
+# On each developer machine
+export SHIELD_SERVER_URL=https://shield.internal:8080
+export SHIELD_PROXY_TOKEN=<shared token>
+cipher-shield proxy start
+```
+
+Best for: engineering organizations that want central visibility and shared exception management.
 
 ### Cloud deployment guides
 
@@ -192,7 +257,7 @@ Step-by-step guides for deploying the team server:
 | GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15/mo |
 | Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Instances + PostgreSQL Flexible Server | ~$35/mo |
 
-All guides cover: database setup, container deployment, first-user bootstrap, dev machine configuration, and teardown.
+All guides cover: database setup, container deployment, first-user bootstrap, developer machine configuration, and teardown.
 
 ---
 
@@ -200,24 +265,26 @@ All guides cover: database setup, container deployment, first-user bootstrap, de
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Enables Claude Opus analysis. Without it, only tiers 1–3 run. |
-| `SHIELD_MODE` | `enforce` | `enforce` blocks, `warn` logs but never blocks, `audit` is fully transparent |
-| `SHIELD_PROXY_ADDR` | `127.0.0.1:7070` | Proxy listen address |
-| `SHIELD_API_ADDR` | `:8080` | API + dashboard listen address (server only) |
-| `SHIELD_JWT_SECRET` | — | Required for dashboard auth. Generate with `openssl rand -hex 32`. |
-| `SHIELD_PROXY_TOKEN` | — | Pre-shared token authenticating dev proxies to the central server. Generate with `openssl rand -hex 32`. |
+| `ANTHROPIC_API_KEY` | — | Enables Claude Opus analysis (Tier 4). Without it, only Tiers 1–3 run. |
+| `SHIELD_MODE` | `enforce` | `enforce` blocks malicious packages. `warn` logs but never blocks. `audit` is fully transparent. |
+| `SHIELD_PROXY_ADDR` | `127.0.0.1:7070` | Registry proxy listen address. |
+| `SHIELD_API_ADDR` | `:8080` | Dashboard + API listen address (server binary only). |
+| `SHIELD_JWT_SECRET` | — | Secret for signing dashboard JWTs. Required for dashboard auth. Generate with `openssl rand -hex 32`. |
+| `SHIELD_PROXY_TOKEN` | — | Pre-shared token that authenticates dev proxies to the central server. Generate with `openssl rand -hex 32`. |
 | `SHIELD_SERVER_URL` | — | URL of the central server. When set, the local proxy ships scan results to the server and syncs exceptions from it. |
-| `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set (with `SHIELD_TLS_KEY`), enables HTTPS on the API port. |
+| `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set alongside `SHIELD_TLS_KEY`, enables HTTPS on the API port. |
 | `SHIELD_TLS_KEY` | — | Path to TLS private key file. |
-| `SHIELD_CORS_ORIGIN` | `*` | Restrict CORS to a specific origin, e.g. `https://shield.company.com`. |
-| `SHIELD_DB_PATH` | `~/.cipher-shield/shield.db` | SQLite path (local mode) |
-| `DATABASE_URL` | — | Postgres DSN. When set, uses Postgres instead of SQLite. |
+| `SHIELD_CORS_ORIGIN` | same-origin | Allowed CORS origin for the API. Set to a specific origin (e.g. `https://shield.company.com`) to enable cross-origin requests. |
+| `SHIELD_DB_PATH` | `~/.cipher-shield/shield.db` | SQLite database path. Used when `DATABASE_URL` is not set. |
+| `DATABASE_URL` | — | Postgres DSN (e.g. `postgres://user:pass@host:5432/shield`). When set, uses Postgres instead of SQLite. |
+| `SHIELD_HISTORY_DAYS` | `30` | Days of scan history to retain. Set to `0` to keep forever. |
+| `SHIELD_KNOWN_BAD_PATH` | — | Path to a local `known_bad.json` override. Takes precedence over the embedded list. Updated by `cipher-shield update`. |
 
 ---
 
 ## Exceptions
 
-When a package is flagged but intentional, add an exception through the dashboard or API. Exceptions are checked before any block verdict is returned — at both the metadata and tarball level.
+When a package is flagged but known-safe in your environment, add an exception via the dashboard or API. Exceptions are checked before any block verdict is returned, at both the metadata and tarball level.
 
 ```sh
 # Allow a specific version
@@ -226,39 +293,48 @@ curl -X POST http://localhost:8080/api/v1/exceptions \
   -H "Content-Type: application/json" \
   -d '{"ecosystem":"npm","name":"left-pad","version":"1.3.0","reason":"used by legacy build, reviewed"}'
 
-# Wildcard — allow all versions (use for packages you fully control)
+# Allow all versions (use for packages you fully control)
+curl -X POST http://localhost:8080/api/v1/exceptions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"ecosystem":"npm","name":"@company/internal-lib","version":"","reason":"internal package"}'
 ```
 
-**On the team server**: exceptions take effect immediately for all traffic flowing through the server's proxy.
+**Model A / team server**: exceptions take effect immediately for all traffic through the server proxy.
 
-**On dev proxies (Model C)**: exceptions are synced from the server every 60 seconds. A newly added exception reaches all dev machines within a minute without any restart.
+**Model C / local proxies**: exceptions sync from the server every 60 seconds. A new exception reaches all developer machines within a minute with no restarts.
 
 ---
 
 ## API
 
+All authenticated endpoints require `Authorization: Bearer <token>`. Obtain a token from `POST /api/v1/auth/login`.
+
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/health` | none | Liveness check |
-| `GET` | `/api/v1/config` | none | Server capabilities (`auth_enabled`, `mode`, `version`) |
-| `POST` | `/api/v1/auth/login` | none | `{email, password}` → `{token}` |
-| `GET` | `/api/v1/auth/me` | JWT | Current user from token |
-| `GET` | `/api/v1/users` | admin JWT | List all users |
-| `POST` | `/api/v1/users` | admin JWT (or none when empty) | Create user; first user auto-becomes admin |
-| `POST` | `/api/v1/users/{id}/reset-password` | admin JWT | Reset a user's password |
-| `POST` | `/api/v1/scan/package` | JWT | Scan `{ecosystem, name, version}` |
-| `POST` | `/api/v1/scan/lockfile` | JWT | Scan uploaded lockfile |
-| `GET` | `/api/v1/history` | JWT | Recent scan results |
-| `GET` | `/api/v1/exceptions` | JWT | List exceptions |
-| `POST` | `/api/v1/exceptions` | JWT | Add exception |
-| `DELETE` | `/api/v1/exceptions/{id}` | JWT | Remove exception |
-| `POST` | `/api/v1/report` | proxy token | Dev proxy ships a scan result to the server |
-| `GET` | `/api/v1/proxy/exceptions` | proxy token | Dev proxy fetches the current exception list |
+| `GET` | `/api/v1/health` | none | Liveness check. |
+| `GET` | `/api/v1/config` | none | Server capabilities: `auth_enabled`, `mode`, `version`. |
+| `POST` | `/api/v1/auth/login` | none | `{email, password}` → `{token}`. |
+| `GET` | `/api/v1/auth/me` | JWT | Returns the current user from the token. |
+| `GET` | `/api/v1/users` | admin JWT | List all users. |
+| `POST` | `/api/v1/users` | admin JWT (or none on empty table) | Create a user. The very first request requires no auth and creates an admin account. |
+| `POST` | `/api/v1/users/{id}/reset-password` | admin JWT | Reset a user's password. |
+| `POST` | `/api/v1/scan/package` | JWT | Scan `{ecosystem, name, version}`. Downloads the tarball and runs all four tiers. |
+| `POST` | `/api/v1/scan/lockfile` | JWT | Scan an uploaded lockfile. Accepts multipart or raw body with `?filename=`. |
+| `GET` | `/api/v1/history` | JWT | Recent scan results. Optional `?limit=N` (max 500). |
+| `GET` | `/api/v1/badlist` | JWT | Returns the full known-bad package list (npm + PyPI entries with reasons and severity). |
+| `POST` | `/api/v1/findings/expand` | JWT | `{package, finding}` → `{explanation}`. Asks Claude Opus to explain a finding in plain English. Returns 501 if `ANTHROPIC_API_KEY` is not set. |
+| `GET` | `/api/v1/exceptions` | JWT | List active exceptions. |
+| `POST` | `/api/v1/exceptions` | JWT | Add an exception `{ecosystem, name, version, reason}`. |
+| `DELETE` | `/api/v1/exceptions/{id}` | JWT | Remove an exception. |
+| `POST` | `/api/v1/report` | proxy token | Internal — dev proxy ships a scan result to the server. |
+| `GET` | `/api/v1/proxy/exceptions` | proxy token | Internal — dev proxy fetches the current exception list. |
 
 ---
 
 ## CI integration
+
+Add cipher-shield to your CI pipeline to catch malicious or vulnerable dependencies before they reach production.
 
 ```yaml
 # GitHub Actions
@@ -270,7 +346,7 @@ curl -X POST http://localhost:8080/api/v1/exceptions \
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-The CLI exits 2 on any blocked package, failing the workflow.
+The CLI exits `2` on any blocked package, failing the workflow. Exit `1` means warnings only (configure your pipeline to treat this as a failure or not, depending on your policy).
 
 ---
 
@@ -278,22 +354,24 @@ The CLI exits 2 on any blocked package, failing the workflow.
 
 ```
 cmd/
-  shield/       CLI binary — scan + proxy start/stop/status
-  server/       Server binary — proxy + API + dashboard
+  shield/       CLI binary — scan commands + local proxy start/stop/status
+  server/       Team server — registry proxy + REST API + web dashboard
+  proxy/        Standalone proxy — lightweight, local pipeline, no dashboard
+                (use when you want a local proxy without running the full server)
 
 internal/
   pipeline/     Orchestrates the four analysis tiers
   analyzer/
-    badlist/    Known-bad list + typosquatting (Levenshtein)
+    badlist/    Known-bad list + typosquatting (Levenshtein distance)
     cve/        OSV.dev CVE lookup
-    heuristic/  Tarball scoring — regex patterns on install scripts
-    claude/     Claude Opus deep analysis
-  proxy/        HTTP proxy — intercepts npm/pip metadata + tarballs
-  proxyctl/     PID management, npm/pip registry save/restore
-  reporter/     Ships scan results to central server; caches exception list
-  lockfile/     Parsers for package-lock.json, yarn.lock, requirements.txt, poetry.lock
-  db/           Store interface — SQLite (local) + Postgres (team)
-  api/          REST API + JWT auth
+    heuristic/  Tarball scoring — pattern matching on install scripts + source
+    claude/     Claude Opus deep analysis + finding expander
+  proxy/        HTTP proxy — intercepts npm/pip metadata and tarball requests
+  proxyctl/     PID management, npm/pip registry config save/restore
+  reporter/     Ships scan results to central server; caches exception list (60s)
+  lockfile/     Parsers: package-lock.json, yarn.lock, requirements.txt, poetry.lock
+  db/           Store interface — SQLite (local/dev) + Postgres (team/production)
+  api/          REST API handlers, JWT auth, rate limiting
 ```
 
 ---
@@ -304,4 +382,4 @@ internal/
 curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.sh | sh
 ```
 
-Removes the binary, daemon, and restores your original npm/pip configuration.
+Removes the binary, stops and removes the daemon, and restores your original npm/pip registry configuration.
