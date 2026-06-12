@@ -72,6 +72,19 @@ func runScan(args []string) {
 	}
 }
 
+func buildPipelineWithStore(store db.Store) *pipeline.Pipeline {
+	cfg := pipeline.DefaultConfig()
+	if m := os.Getenv("SHIELD_MODE"); m != "" {
+		cfg.Mode = m
+	}
+	var claudeAnalyzer analyzer.Analyzer
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		claudeAnalyzer = claude.New(key)
+	}
+	overridePath := dirOf(envOr("SHIELD_DB_PATH", defaultDBPath())) + "/known_bad.json"
+	return pipeline.New(store, cfg, badlist.NewWithOverride(overridePath), cve.New(), heuristic.New(), claudeAnalyzer)
+}
+
 func buildPipeline() *pipeline.Pipeline {
 	dbPath := envOr("SHIELD_DB_PATH", defaultDBPath())
 
@@ -514,10 +527,43 @@ func runExplain(args []string) {
 	}
 
 	if result == nil {
-		fmt.Printf("No cached result found for %s.\n\n", nameVersion)
-		fmt.Printf("Scan it now:\n")
-		fmt.Printf("  cipher-shield scan package %s\n", nameVersion)
-		os.Exit(0)
+		fmt.Printf("No cached result for %s — scanning now...\n\n", nameVersion)
+
+		pl := buildPipelineWithStore(store)
+		eco := shield.EcosystemNPM
+
+		// Resolve version if not provided
+		resolvedVer := ver
+		if resolvedVer == "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			if v, err := resolveLatestVersion(ctx, eco, name); err == nil {
+				resolvedVer = v
+				fmt.Printf("Resolved %s@latest → %s\n\n", name, resolvedVer)
+			} else {
+				resolvedVer = "latest"
+			}
+			cancel()
+		}
+
+		pkg := shield.PackageRef{Ecosystem: eco, Name: name, Version: resolvedVer}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+
+		fmt.Printf("Fetching tarball... ")
+		tarball, fetchErr := registry.FetchTarball(ctx, pkg, "cipher-shield/"+version)
+		if fetchErr != nil {
+			fmt.Printf("skipped (%v)\n", fetchErr)
+		} else {
+			fmt.Printf("%d KB\n\n", len(tarball)/1024)
+		}
+
+		r, err := pl.Analyze(ctx, pkg, tarball)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
+			os.Exit(1)
+		}
+		result = r
 	}
 
 	fmt.Printf("Package:  %s@%s (%s)\n", result.Package.Name, result.Package.Version, result.Package.Ecosystem)
