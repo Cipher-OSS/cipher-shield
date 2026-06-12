@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	shield "github.com/homes853/cipher-shield/internal"
 	"github.com/homes853/cipher-shield/internal/db"
 	"github.com/homes853/cipher-shield/internal/lockfile"
+	"github.com/homes853/cipher-shield/internal/registry"
 	shieldweb "github.com/homes853/cipher-shield/web"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -128,20 +130,25 @@ func (s *Server) handleScanPackage(w http.ResponseWriter, r *http.Request) {
 		eco = shield.EcosystemNPM
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
-	result, err := s.scanner.Analyze(ctx, shield.PackageRef{
-		Ecosystem: eco,
-		Name:      req.Name,
-		Version:   req.Version,
-	}, nil)
+	// Fetch the tarball so Tier 3 (heuristic) and Tier 4 (Claude) can run.
+	// Non-fatal: if unreachable we fall through with nil tarball (Tier 1+2 only).
+	pkg := shield.PackageRef{Ecosystem: eco, Name: req.Name, Version: req.Version}
+	tarball, err := registry.FetchTarball(ctx, pkg, "cipher-shield")
+	if err != nil {
+		log.Printf("[api] fetchTarball %s@%s: %v — running Tier 1+2 only", req.Name, req.Version, err)
+	}
+
+	result, err := s.scanner.Analyze(ctx, pkg, tarball)
 	if err != nil {
 		jsonError(w, "scan failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	jsonOK(w, result)
 }
+
 
 // POST /api/v1/scan/lockfile
 // Accepts multipart/form-data with field "file" (filename used for format detection)
@@ -368,13 +375,13 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := s.corsOrigin
-		if origin == "" {
-			origin = "*"
+		// Only set CORS headers when an explicit origin is configured.
+		// Default (empty) = same-origin only; browser policy applies without headers.
+		if s.corsOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(204)
 			return

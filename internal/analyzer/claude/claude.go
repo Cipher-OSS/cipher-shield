@@ -26,6 +26,10 @@ const (
 	analysisTimeout = 30 * time.Second
 )
 
+// ErrNoContent is returned when the tarball contains nothing worth sending to Claude.
+// The pipeline treats this as a clean skip, not an error.
+var ErrNoContent = fmt.Errorf("claude: no analyzable content in tarball")
+
 // claudeAnalyzer calls Claude Opus for deep package analysis.
 type claudeAnalyzer struct {
 	apiKey string
@@ -49,8 +53,11 @@ func (c *claudeAnalyzer) Analyze(ctx context.Context, pkg shield.PackageRef, tar
 
 	// Extract install scripts and suspicious snippets from tarball
 	installScripts, snippets, err := extractForAnalysis(pkg.Ecosystem, tarball)
-	if err != nil || (len(installScripts) == 0 && len(snippets) == 0) {
+	if err != nil {
 		return nil, nil
+	}
+	if len(installScripts) == 0 && len(snippets) == 0 {
+		return nil, ErrNoContent
 	}
 
 	prompt := buildPrompt(pkg, installScripts, snippets)
@@ -189,7 +196,8 @@ func extractForAnalysis(eco shield.Ecosystem, data []byte) (map[string]string, [
 		}
 
 		// Include short suspicious-looking source files as snippets
-		if (strings.HasSuffix(base, ".js") || strings.HasSuffix(base, ".py")) &&
+		if (strings.HasSuffix(base, ".js") || strings.HasSuffix(base, ".mjs") ||
+			strings.HasSuffix(base, ".cjs") || strings.HasSuffix(base, ".py")) &&
 			len(f.content) < 8000 && isSuspiciousContent(content) {
 			snippets = append(snippets, sourceSnippet{
 				path:    f.path,
@@ -242,7 +250,7 @@ func extractTGZ(data []byte) ([]fileEntry, error) {
 		}
 		base := strings.ToLower(filepath.Base(hdr.Name))
 		ext := strings.ToLower(filepath.Ext(hdr.Name))
-		if base != "package.json" && base != "setup.py" && ext != ".js" && ext != ".py" {
+		if base != "package.json" && base != "setup.py" && ext != ".js" && ext != ".mjs" && ext != ".cjs" && ext != ".py" {
 			continue
 		}
 		buf := &bytes.Buffer{}

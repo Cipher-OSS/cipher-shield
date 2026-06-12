@@ -8,6 +8,7 @@ import (
 
 	shield "github.com/homes853/cipher-shield/internal"
 	"github.com/homes853/cipher-shield/internal/analyzer"
+	claudeanalyzer "github.com/homes853/cipher-shield/internal/analyzer/claude"
 	"github.com/homes853/cipher-shield/internal/db"
 )
 
@@ -91,7 +92,7 @@ func (p *Pipeline) Analyze(ctx context.Context, pkg shield.PackageRef, tarball [
 			ScanID:     newScanID(),
 			Package:    pkg,
 			Verdict:    shield.VerdictAllow,
-			Findings:   nil,
+			Findings:   []shield.Finding{},
 			ScannedAt:  time.Now().UTC(),
 			DurationMs: time.Since(start).Milliseconds(),
 		}
@@ -140,24 +141,32 @@ func (p *Pipeline) Analyze(ctx context.Context, pkg shield.PackageRef, tarball [
 		allFindings = append(allFindings, findings...)
 	}
 
-	// Tier 4: Claude Opus (only when needed)
+	// Tier 4: Claude Opus (only when needed and tarball is present)
+	claudeRan := false
 	if claudeNeeded && p.claude != nil && len(tarball) > 0 {
 		log.Printf("[pipeline] %s@%s: invoking Claude Opus", pkg.Name, pkg.Version)
 		findings, err := p.claude.Analyze(ctx, pkg, tarball)
-		if err != nil {
+		switch {
+		case err == claudeanalyzer.ErrNoContent:
+			log.Printf("[pipeline] %s@%s: Claude skipped (no analyzable content)", pkg.Name, pkg.Version)
+		case err != nil:
 			log.Printf("[pipeline] claude error: %v", err)
-		} else {
+		default:
+			claudeRan = true
 			allFindings = append(allFindings, findings...)
 		}
 	}
 
+	if allFindings == nil {
+		allFindings = []shield.Finding{}
+	}
 	verdict := p.computeVerdict(allFindings)
 	result := &shield.ScanResult{
 		ScanID:     newScanID(),
 		Package:    pkg,
 		Verdict:    verdict,
 		Findings:   allFindings,
-		ClaudeUsed: claudeNeeded && p.claude != nil,
+		ClaudeUsed: claudeRan,
 		ScannedAt:  time.Now().UTC(),
 		DurationMs: time.Since(start).Milliseconds(),
 	}

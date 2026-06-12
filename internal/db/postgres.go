@@ -155,7 +155,7 @@ func (s *postgresStore) GetCachedResult(eco shield.Ecosystem, name, version stri
 func (s *postgresStore) SaveResult(r shield.ScanResult) error {
 	id := cacheKey(r.Package.Ecosystem, r.Package.Name, r.Package.Version)
 
-	ttl := 24 * time.Hour
+	ttl := 4 * time.Hour
 	if r.Verdict == shield.VerdictWarn || r.Verdict == shield.VerdictBlock {
 		ttl = time.Hour
 	}

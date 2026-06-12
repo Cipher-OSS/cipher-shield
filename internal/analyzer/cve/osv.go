@@ -91,8 +91,12 @@ func (c *osvClient) Analyze(ctx context.Context, pkg shield.PackageRef, _ []byte
 			}
 		}
 
-		// Parse CVSS score from severity array
+		// Parse CVSS score; fall back to a representative value derived from
+		// database_specific.severity when the vector has no embedded numeric score.
 		cvss := parseCVSS(v.Severity)
+		if cvss == 0 {
+			cvss = cvssFromSeverity(v.DatabaseSpecific.Severity)
+		}
 
 		// Map database_specific.severity to our Severity type
 		sev := mapSeverity(v.DatabaseSpecific.Severity, cvss)
@@ -139,6 +143,20 @@ func parseCVSS(severities []struct {
 				return score
 			}
 		}
+	}
+	return 0
+}
+
+func cvssFromSeverity(s string) float64 {
+	switch strings.ToUpper(s) {
+	case "CRITICAL":
+		return 9.5
+	case "HIGH":
+		return 8.0
+	case "MODERATE", "MEDIUM":
+		return 5.0
+	case "LOW":
+		return 2.0
 	}
 	return 0
 }

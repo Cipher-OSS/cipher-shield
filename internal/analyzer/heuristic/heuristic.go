@@ -28,6 +28,12 @@ const (
 	ScoreNewMaintainer    = 10 // package very new (from metadata)
 	ScoreNoReadme         = 5  // no README file in package
 	ScoreManyInstallHooks = 15 // multiple install lifecycle scripts
+	ScoreFunctionCtor     = 30 // new Function() dynamic code construction
+	ScoreCharCodeObfusc   = 25 // String.fromCharCode() with many args
+	ScoreJSObfuscator     = 25 // _0x variable pattern from js-obfuscator
+	ScoreWebhookExfil     = 40 // Discord/Slack/Telegram webhook URL in source
+	ScoreStagingDomain    = 20 // raw.githubusercontent/pastebin used as payload stage
+	ScoreNativeBinary     = 15 // precompiled .node/.so/.dll binary present
 )
 
 // Result is returned alongside findings to let the pipeline decide
@@ -54,7 +60,7 @@ func (h *heuristicAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, ta
 	if err != nil {
 		return nil, nil // non-fatal: can't extract = pass through
 	}
-	res := analyzeFiles(r.files, r.hasReadme)
+	res := analyzeFiles(r.files, r.hasReadme, r.hasBinary)
 	return res.Findings, nil
 }
 
@@ -73,7 +79,7 @@ func Score(pkg shield.PackageRef, tarball []byte) int {
 	if err != nil {
 		return 0
 	}
-	return analyzeFiles(r.files, r.hasReadme).Score
+	return analyzeFiles(r.files, r.hasReadme, r.hasBinary).Score
 }
 
 // fileEntry holds the path and content of a file extracted from the tarball.
@@ -85,6 +91,7 @@ type fileEntry struct {
 type extractResult struct {
 	files     []fileEntry
 	hasReadme bool
+	hasBinary bool
 }
 
 // extract unpacks an npm .tgz or PyPI .whl/.tar.gz into memory.
@@ -93,14 +100,22 @@ func extract(eco shield.Ecosystem, data []byte) (extractResult, error) {
 	switch eco {
 	case shield.EcosystemNPM:
 		files, err := extractTGZ(data)
-		return extractResult{files: files, hasReadme: tgzHasReadme(data)}, err
+		return extractResult{
+			files:     files,
+			hasReadme: tgzHasReadme(data),
+			hasBinary: tgzHasBinary(data),
+		}, err
 	case shield.EcosystemPyPI:
 		// Try zip (wheel) first, then tar.gz (sdist)
 		if files, err := extractZip(data); err == nil {
-			return extractResult{files: files, hasReadme: zipHasReadme(data)}, nil
+			return extractResult{files: files, hasReadme: zipHasReadme(data), hasBinary: zipHasBinary(data)}, nil
 		}
 		files, err := extractTGZ(data)
-		return extractResult{files: files, hasReadme: tgzHasReadme(data)}, err
+		return extractResult{
+			files:     files,
+			hasReadme: tgzHasReadme(data),
+			hasBinary: tgzHasBinary(data),
+		}, err
 	}
 	return extractResult{}, fmt.Errorf("unknown ecosystem")
 }
@@ -133,6 +148,46 @@ func zipHasReadme(data []byte) bool {
 	}
 	for _, f := range r.File {
 		if strings.HasPrefix(strings.ToLower(filepath.Base(f.Name)), "readme") {
+			return true
+		}
+	}
+	return false
+}
+
+var binaryExts = map[string]bool{
+	".node": true, // compiled Node.js native addon
+	".so":   true, // Linux shared object
+	".dll":  true, // Windows DLL
+	".exe":  true, // Windows executable
+	".dylib": true, // macOS shared library
+}
+
+func tgzHasBinary(data []byte) bool {
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		if binaryExts[strings.ToLower(filepath.Ext(hdr.Name))] {
+			return true
+		}
+	}
+	return false
+}
+
+func zipHasBinary(data []byte) bool {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return false
+	}
+	for _, f := range r.File {
+		if binaryExts[strings.ToLower(filepath.Ext(f.Name))] {
 			return true
 		}
 	}
@@ -213,7 +268,7 @@ func interestingFile(name string) bool {
 		strings.Contains(name, "docs") || strings.Contains(name, "__pycache__") {
 		return false
 	}
-	return ext == ".js" || ext == ".py" || ext == ".sh" || ext == ".ts"
+	return ext == ".js" || ext == ".mjs" || ext == ".cjs" || ext == ".py" || ext == ".sh" || ext == ".ts"
 }
 
 // Suspicious patterns compiled once at package init.
@@ -224,9 +279,20 @@ var (
 	reEnvExfil        = regexp.MustCompile("(?i)(process\\.env|os\\.environ|getenv).{0,200}(fetch|curl|wget|http|request)")
 	reChildProc       = regexp.MustCompile("(?i)(child_process|spawn|execSync|exec\\s*\\()[\\s\\(`'\"\\\\]")
 	reRemoteScript    = regexp.MustCompile("(?i)(curl|wget).{0,50}(sh|bash|python|node)\\b")
+
+	// Dynamic code construction via Function constructor: new Function("return ...")
+	reFunctionCtor = regexp.MustCompile(`(?i)new\s+Function\s*\(`)
+	// String.fromCharCode with 3+ args — almost always character-array obfuscation
+	reCharCodeObfusc = regexp.MustCompile(`String\.fromCharCode\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+`)
+	// _0x-prefixed variable names — signature of js-obfuscator and similar tools
+	reJSObfuscator = regexp.MustCompile(`_0x[0-9a-fA-F]{4,}\b`)
+	// Webhook URLs used for credential/secret exfiltration
+	reWebhookExfil = regexp.MustCompile(`(?i)(discord\.com/api/webhooks|hooks\.slack\.com|api\.telegram\.org/bot)`)
+	// Staging domains used to serve payloads or receive exfiltrated data
+	reStagingDomain = regexp.MustCompile(`(?i)(raw\.githubusercontent\.com|gist\.githubusercontent\.com|pastebin\.com/raw|transfer\.sh)`)
 )
 
-func analyzeFiles(files []fileEntry, hasReadme bool) Result {
+func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 	var res Result
 	addFinding := func(score int, sev shield.Severity, title, desc string) {
 		res.Score += score
@@ -305,6 +371,37 @@ func analyzeFiles(files []fileEntry, hasReadme bool) Result {
 				"Possible environment variable exfiltration",
 				fmt.Sprintf("File %s reads environment variables and makes network calls in proximity", filepath.Base(f.path)))
 		}
+		if reFunctionCtor.MatchString(content) {
+			addFinding(ScoreFunctionCtor, shield.SeverityHigh,
+				"Dynamic code construction via Function constructor",
+				fmt.Sprintf("File %s uses new Function() to construct and execute code at runtime", filepath.Base(f.path)))
+		}
+		if reCharCodeObfusc.MatchString(content) {
+			addFinding(ScoreCharCodeObfusc, shield.SeverityHigh,
+				"Character-code obfuscation detected",
+				fmt.Sprintf("File %s builds strings via String.fromCharCode() — common obfuscation technique", filepath.Base(f.path)))
+		}
+		if reJSObfuscator.MatchString(content) {
+			addFinding(ScoreJSObfuscator, shield.SeverityMedium,
+				"JS obfuscator output detected (_0x variables)",
+				fmt.Sprintf("File %s contains _0x-prefixed identifiers characteristic of automated JS obfuscators", filepath.Base(f.path)))
+		}
+		if reWebhookExfil.MatchString(content) {
+			addFinding(ScoreWebhookExfil, shield.SeverityCritical,
+				"Webhook exfiltration endpoint in source",
+				fmt.Sprintf("File %s contains a Discord/Slack/Telegram webhook URL — common data exfiltration channel", filepath.Base(f.path)))
+		}
+		if reStagingDomain.MatchString(content) {
+			addFinding(ScoreStagingDomain, shield.SeverityHigh,
+				"Known payload-staging domain referenced",
+				fmt.Sprintf("File %s references a domain commonly used to stage attack payloads (raw.githubusercontent.com, pastebin, etc.)", filepath.Base(f.path)))
+		}
+	}
+
+	if hasBinary {
+		addFinding(ScoreNativeBinary, shield.SeverityMedium,
+			"Precompiled native binary included in package",
+			"Package contains a compiled binary (.node, .so, .dll, .dylib) — cannot be statically analyzed for malicious behavior")
 	}
 
 	if !hasReadme && len(files) > 0 {

@@ -85,9 +85,10 @@ func main() {
 
 	// ── Registry proxy ────────────────────────────────────────────────────────
 	proxyCfg := proxy.Config{
-		ListenAddr: *proxyAddr,
-		Mode:       proxy.Mode(*mode),
-		Pipeline:   pl,
+		ListenAddr:  *proxyAddr,
+		Mode:        proxy.Mode(*mode),
+		Pipeline:    pl,
+		NameChecker: pl,
 	}
 	go func() {
 		if err := proxy.New(proxyCfg).Start(); err != nil {

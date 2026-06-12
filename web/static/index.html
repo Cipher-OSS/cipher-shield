@@ -788,10 +788,11 @@
                 <th>Verdict</th>
                 <th>Findings</th>
                 <th>Scanned</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="history-tbody">
-              <tr class="empty-row"><td colspan="6">Loading...</td></tr>
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1032,6 +1033,15 @@ function severityBadge(s) {
   return `<span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700">${(s||'INFO').toUpperCase()}</span>`;
 }
 
+function sourceBadge(type) {
+  const labels = { 'known-bad':'Known-Bad', 'typosquat':'Typosquat', 'cve':'CVE', 'heuristic':'Heuristic', 'claude':'Claude' };
+  const colors = { 'known-bad':'#ef4444', 'typosquat':'#f97316', 'cve':'#3b82f6', 'heuristic':'#06b6d4', 'claude':'#818cf8' };
+  const t = (type||'').toLowerCase();
+  const label = labels[t] || type || 'unknown';
+  const color = colors[t] || '#6b7280';
+  return `<span style="border:1px solid ${color};color:${color};padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;opacity:0.85">${label}</span>`;
+}
+
 function fmtDate(ts) {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -1234,7 +1244,7 @@ function showView(name) {
 
 async function loadHistory() {
   const tbody = document.getElementById('history-tbody');
-  tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
 
   try {
     const res = await apiFetch('/api/v1/history?limit=100');
@@ -1260,31 +1270,53 @@ async function loadHistory() {
     document.getElementById('stat-clean').textContent   = counts.allow  || 0;
 
     if (!items.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No scan history yet.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No scan history yet.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = items.slice(0, 50).map(i => {
-      // ScanResult.Package is a nested object { ecosystem, name, version }
-      const pkg  = i.package ? i.package.name      : '—';
-      const eco  = i.package ? i.package.ecosystem  : '—';
-      const ver  = i.package ? i.package.version    : '—';
-      const verb = (i.verdict || 'unknown').toLowerCase();
-      const nf   = (i.findings || []).length;
-      const ts   = fmtDate(i.scanned_at);
-      const cached = i.cached_at ? '<span class="cached-tag">cached</span>' : '';
-      return `<tr>
+    tbody.innerHTML = items.slice(0, 50).map((i, idx) => {
+      const pkg      = i.package ? i.package.name     : '—';
+      const eco      = i.package ? i.package.ecosystem : '—';
+      const ver      = i.package ? i.package.version   : '—';
+      const verb     = (i.verdict || 'unknown').toLowerCase();
+      const findings = i.findings || [];
+      const nf       = findings.length;
+      const ts       = fmtDate(i.scanned_at);
+      const cached   = i.cached_at ? '<span class="cached-tag">cached</span>' : '';
+      const claudeTag = i.claude_used ? `<span style="font-size:10px;color:var(--accent-h);margin-left:4px">● Claude</span>` : '';
+      const rowId    = `hist-findings-${idx}`;
+
+      const findingsHtml = findings.map(f => {
+        const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+        const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      const detailRow = nf > 0 ? `
+        <tr class="lockfile-row-findings" id="${rowId}">
+          <td colspan="7"><div style="padding:4px 0">${findingsHtml}</div></td>
+        </tr>` : '';
+
+      const expandBtn = nf > 0
+        ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+        : '';
+
+      return `<tr class="${nf > 0 ? 'has-findings' : ''}" ${nf > 0 ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
         <td class="mono">${esc(pkg)}</td>
         <td>${esc(eco)}</td>
         <td class="mono">${esc(ver)}</td>
-        <td>${verdictBadge(verb)} ${cached}</td>
+        <td>${verdictBadge(verb)} ${cached}${claudeTag}</td>
         <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
         <td style="color:var(--muted)">${ts}</td>
-      </tr>`;
+        <td>${expandBtn}</td>
+      </tr>${detailRow}`;
     }).join('');
   } catch (e) {
     if (e.message !== 'Unauthorized') {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="color:var(--red)">Failed to load history.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7" style="color:var(--red)">Failed to load history.</td></tr>';
       ['stat-total','stat-blocked','stat-warn','stat-clean'].forEach(id => {
         document.getElementById(id).textContent = '—';
       });
@@ -1357,10 +1389,10 @@ function renderScanResult(data, container) {
         const refs = (f.references || []).map(r =>
           `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`
         ).join('');
-        const cve = f.cve ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">${esc(f.cve)}</span>` : '';
+        const cve  = f.cve  ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">${esc(f.cve)}</span>`  : '';
         const cvss = f.cvss ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">CVSS ${f.cvss}</span>` : '';
         return `<div class="finding-card">
-          <div class="finding-title">${severityBadge(f.severity)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
           ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
           ${refs ? `<div class="finding-refs">${refs}</div>` : ''}
         </div>`;
@@ -1697,7 +1729,7 @@ function renderLockfileResults(filename, data) {
       const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
       const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
       return `<div class="finding-card">
-        <div class="finding-title">${severityBadge(f.severity)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+        <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
         ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
       </div>`;
     }).join('');

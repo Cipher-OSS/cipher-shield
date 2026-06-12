@@ -162,14 +162,21 @@ func (s *sqliteStore) GetCachedResult(eco shield.Ecosystem, name, version string
 	return &r, nil
 }
 
-// SaveResult upserts into scan_cache (TTL: 24h allow, 1h warn/block)
+// Cache TTLs. Allow is short enough that a newly-published CVE becomes visible
+// on the next install within a few hours; warn/block refresh more aggressively.
+const (
+	cacheTTLAllow = 4 * time.Hour
+	cacheTTLFlag  = time.Hour
+)
+
+// SaveResult upserts into scan_cache (TTL: 4h allow, 1h warn/block)
 // and appends to scan_history, pruning to last 1000 rows.
 func (s *sqliteStore) SaveResult(r shield.ScanResult) error {
 	id := cacheKey(r.Package.Ecosystem, r.Package.Name, r.Package.Version)
 
-	ttl := 24 * time.Hour
+	ttl := cacheTTLAllow
 	if r.Verdict == shield.VerdictWarn || r.Verdict == shield.VerdictBlock {
-		ttl = time.Hour
+		ttl = cacheTTLFlag
 	}
 	expiresAt := r.ScannedAt.Add(ttl)
 
