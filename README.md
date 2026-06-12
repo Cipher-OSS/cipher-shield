@@ -178,6 +178,23 @@ Scanning 147 packages from package-lock.json...
 Summary: 146 clean, 0 warn, 1 block
 ```
 
+### Explain a blocked package
+
+When the proxy blocks an install, it tells you to run `cipher-shield explain <name>`. This looks up the last cached scan result and prints the full findings:
+
+```sh
+cipher-shield explain colourama
+# Package:  colourama@0.4.3 (npm)
+# Verdict:  BLOCK
+# Scanned:  2024-06-12 14:32 UTC
+#
+# Findings:
+#   1. [CRITICAL] Known malicious package: colourama
+#      Confirmed typosquatter of colorama. Contains credential-stealing code.
+```
+
+If the package hasn't been scanned yet, it tells you to run `cipher-shield scan package <name>` first.
+
 ### Update the known-bad list
 
 The known-bad list is embedded at build time. To fetch the latest list without rebuilding:

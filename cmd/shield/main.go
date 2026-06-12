@@ -40,6 +40,8 @@ func main() {
 		runScan(os.Args[2:])
 	case "proxy":
 		runProxy(os.Args[2:])
+	case "explain":
+		runExplain(os.Args[2:])
 	case "update":
 		runUpdate()
 	case "version":
@@ -465,6 +467,78 @@ func runUpdate() {
 	fmt.Printf("Restart cipher-shield proxy for the new list to take effect.\n")
 }
 
+func runExplain(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: cipher-shield explain <name[@version]>")
+		os.Exit(1)
+	}
+
+	nameVersion := args[0]
+	name, ver := nameVersion, ""
+	if idx := strings.LastIndex(nameVersion, "@"); idx > 0 {
+		name = nameVersion[:idx]
+		ver = nameVersion[idx+1:]
+	}
+
+	dbPath := envOr("SHIELD_DB_PATH", defaultDBPath())
+	store, err := db.Open("sqlite3", dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: cannot open local cache: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Run 'cipher-shield scan package %s' to scan this package.\n", nameVersion)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	var result *shield.ScanResult
+
+	if ver != "" {
+		// Version specified — check cache directly for npm then pypi
+		for _, eco := range []shield.Ecosystem{shield.EcosystemNPM, shield.EcosystemPyPI} {
+			if r, err := store.GetCachedResult(eco, name, ver); err == nil && r != nil {
+				result = r
+				break
+			}
+		}
+	} else {
+		// No version — find the most recent history entry for this package name
+		history, err := store.ListHistory(200)
+		if err == nil {
+			for _, r := range history {
+				if strings.EqualFold(r.Package.Name, name) {
+					r := r
+					result = &r
+					break
+				}
+			}
+		}
+	}
+
+	if result == nil {
+		fmt.Printf("No cached result found for %s.\n\n", nameVersion)
+		fmt.Printf("Scan it now:\n")
+		fmt.Printf("  cipher-shield scan package %s\n", nameVersion)
+		os.Exit(0)
+	}
+
+	fmt.Printf("Package:  %s@%s (%s)\n", result.Package.Name, result.Package.Version, result.Package.Ecosystem)
+	fmt.Printf("Verdict:  %s\n", verdictStr(result.Verdict))
+	fmt.Printf("Scanned:  %s", result.ScannedAt.Format("2006-01-02 15:04 UTC"))
+	if result.CachedAt != nil {
+		fmt.Printf(" (cached)")
+	}
+	if result.ClaudeUsed {
+		fmt.Printf(" · Claude Opus")
+	}
+	fmt.Printf("\n\n")
+
+	printDetails(result)
+
+	if result.Verdict == shield.VerdictBlock || result.Verdict == shield.VerdictWarn {
+		fmt.Printf("\nIf this package is safe to use in your environment, add an exception:\n")
+		fmt.Printf("  Dashboard → Exceptions → Add Exception\n")
+	}
+}
+
 func printUsage() {
 	fmt.Fprint(os.Stderr, `cipher-shield — AI-powered package security firewall
 
@@ -472,6 +546,7 @@ Usage:
   cipher-shield scan lockfile <path>              Scan a lock file (package-lock.json, requirements.txt, etc.)
   cipher-shield scan package <name@version>       Scan a single package
     [--ecosystem npm|pypi]                        (default: npm)
+  cipher-shield explain <name[@version]>          Show full findings for a blocked/warned package
   cipher-shield proxy start [--addr 127.0.0.1:7070]  Start proxy (configures npm + pip automatically)
   cipher-shield proxy stop                            Stop proxy (restores npm + pip config)
   cipher-shield proxy status                          Show proxy status
