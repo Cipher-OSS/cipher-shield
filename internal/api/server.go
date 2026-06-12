@@ -27,11 +27,23 @@ type Scanner interface {
 	Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) (*shield.ScanResult, error)
 }
 
+// Expander produces a plain-English explanation of a single finding using Claude.
+type Expander interface {
+	Explain(ctx context.Context, pkg shield.PackageRef, finding shield.Finding) (string, error)
+}
+
+// BadlistSource provides the known-bad list as raw JSON bytes.
+type BadlistSource interface {
+	RawJSON() []byte
+}
+
 // Server is the cipher-shield HTTP API server.
 type Server struct {
 	router       *mux.Router
 	store        db.Store
 	scanner      Scanner
+	expander     Expander     // optional; nil when no Anthropic key
+	badlist      BadlistSource // optional; nil disables /api/v1/badlist
 	jwtSecret    []byte
 	proxyToken   []byte
 	mode         string     // enforce | warn | audit
@@ -40,7 +52,7 @@ type Server struct {
 }
 
 // New creates a Server.
-func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, corsOrigin string) *Server {
+func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, corsOrigin string, expander Expander, badlist BadlistSource) *Server {
 	if mode == "" {
 		mode = "enforce"
 	}
@@ -48,6 +60,8 @@ func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, co
 		router:       mux.NewRouter(),
 		store:        store,
 		scanner:      scanner,
+		expander:     expander,
+		badlist:      badlist,
 		jwtSecret:    jwtSecret,
 		proxyToken:   proxyToken,
 		mode:         mode,
@@ -89,6 +103,12 @@ func (s *Server) routes() {
 
 	// History
 	s.router.HandleFunc("/api/v1/history", s.requireUser(s.handleHistory)).Methods("GET", "OPTIONS")
+
+	// Finding explanation (Claude-powered, optional)
+	s.router.HandleFunc("/api/v1/findings/expand", s.requireUser(s.handleExpandFinding)).Methods("POST", "OPTIONS")
+
+	// Known-bad list visibility
+	s.router.HandleFunc("/api/v1/badlist", s.requireUser(s.handleBadlist)).Methods("GET", "OPTIONS")
 
 	// Exceptions
 	s.router.HandleFunc("/api/v1/exceptions", s.requireUser(s.handleListExceptions)).Methods("GET", "OPTIONS")
@@ -238,6 +258,46 @@ func (s *Server) handleScanLockfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]interface{}{"filename": filename, "count": len(results), "results": results})
+}
+
+// POST /api/v1/findings/expand — calls Claude for a plain-English explanation of one finding.
+func (s *Server) handleExpandFinding(w http.ResponseWriter, r *http.Request) {
+	if s.expander == nil {
+		jsonError(w, "Claude analysis not enabled — set ANTHROPIC_API_KEY on the server", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Package shield.PackageRef `json:"package"`
+		Finding shield.Finding    `json:"finding"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Finding.Type == "" {
+		jsonError(w, "package and finding required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	explanation, err := s.expander.Explain(ctx, req.Package, req.Finding)
+	if err != nil {
+		log.Printf("[api] expand finding: %v", err)
+		jsonError(w, "explanation failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"explanation": explanation})
+}
+
+// GET /api/v1/badlist — returns the loaded known-bad list as JSON.
+func (s *Server) handleBadlist(w http.ResponseWriter, r *http.Request) {
+	if s.badlist == nil {
+		jsonOK(w, map[string]interface{}{"npm": []interface{}{}, "pypi": []interface{}{}})
+		return
+	}
+	raw := s.badlist.RawJSON()
+	if len(raw) == 0 {
+		jsonOK(w, map[string]interface{}{"npm": []interface{}{}, "pypi": []interface{}{}})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(raw)
 }
 
 // GET /api/v1/history?limit=50

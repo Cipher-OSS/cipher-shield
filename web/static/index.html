@@ -721,6 +721,12 @@
         </svg>
         Exceptions
       </button>
+      <button class="nav-pill" onclick="showView('badlist')" id="nav-badlist">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+        Known Bad
+      </button>
       <button class="nav-pill hidden" onclick="showView('users')" id="nav-users">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -922,6 +928,34 @@
             </thead>
             <tbody id="exceptions-tbody">
               <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Known Bad List View -->
+      <div class="view" id="view-badlist">
+        <div style="display:flex;gap:16px;margin-bottom:16px">
+          <input type="text" id="badlist-filter" placeholder="Filter by name, ecosystem, or reason…"
+            oninput="filterBadlist()"
+            style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Known Malicious Packages <span id="badlist-count" style="font-size:12px;color:var(--muted);font-weight:400"></span></h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Severity</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody id="badlist-tbody">
+              <tr class="empty-row"><td colspan="5">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1220,6 +1254,7 @@ const VIEW_TITLES = {
   scan:       'Scan Package',
   lockfile:   'Lockfile Scan',
   exceptions: 'Exceptions',
+  badlist:    'Known Bad Packages',
   users:      'Team',
 };
 
@@ -1237,6 +1272,7 @@ function showView(name) {
 
   if (name === 'dashboard')  loadHistory();
   if (name === 'exceptions') loadExceptions();
+  if (name === 'badlist')    loadBadlist();
   if (name === 'users')      loadUsers();
 }
 
@@ -1286,11 +1322,18 @@ async function loadHistory() {
       const claudeTag = i.claude_used ? `<span style="font-size:10px;color:var(--accent-h);margin-left:4px">● Claude</span>` : '';
       const rowId    = `hist-findings-${idx}`;
 
+      const histPkg = i.package || {};
       const findingsHtml = findings.map(f => {
         const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
         const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+        const pkgAttr = esc(JSON.stringify({name: histPkg.name || '', version: histPkg.version || '', ecosystem: histPkg.ecosystem || ''}));
+        const fAttr   = esc(JSON.stringify(f));
         return `<div class="finding-card">
-          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px;padding:2px 8px"
+              data-pkg="${pkgAttr}" data-finding="${fAttr}"
+              onclick="expandFinding(JSON.parse(this.dataset.pkg), JSON.parse(this.dataset.finding), this)">Explain</button>
+          </div>
           ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
         </div>`;
       }).join('');
@@ -1385,14 +1428,20 @@ function renderScanResult(data, container) {
 
   const findingsHtml = findings.length === 0
     ? '<p style="color:var(--muted);font-size:13px">No findings — package looks clean.</p>'
-    : `<div class="findings-list">${findings.map(f => {
+    : `<div class="findings-list">${findings.map((f, fi) => {
         const refs = (f.references || []).map(r =>
           `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`
         ).join('');
         const cve  = f.cve  ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">${esc(f.cve)}</span>`  : '';
         const cvss = f.cvss ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">CVSS ${f.cvss}</span>` : '';
+        const pkgAttr = esc(JSON.stringify({name: pkg.name || '', version: pkg.version || '', ecosystem: pkg.ecosystem || ''}));
+        const fAttr   = esc(JSON.stringify(f));
         return `<div class="finding-card">
-          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px;padding:2px 8px"
+              data-pkg="${pkgAttr}" data-finding="${fAttr}"
+              onclick="expandFinding(JSON.parse(this.dataset.pkg), JSON.parse(this.dataset.finding), this)">Explain</button>
+          </div>
           ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
           ${refs ? `<div class="finding-refs">${refs}</div>` : ''}
         </div>`;
@@ -1519,6 +1568,111 @@ async function deleteException(id) {
     loadExceptions();
   } catch (e) {
     if (e.message !== 'Unauthorized') alert('Network error — could not reach the API.');
+  }
+}
+
+// ── Known Bad List ────────────────────────────────────────────────────────────
+
+let badlistAll = [];
+
+async function loadBadlist() {
+  const tbody = document.getElementById('badlist-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById('badlist-count').textContent = '';
+
+  try {
+    const res = await apiFetch('/api/v1/badlist');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const npm   = (data.npm   || []).map(e => ({...e, ecosystem: 'npm'}));
+    const pypi  = (data.pypi  || []).map(e => ({...e, ecosystem: 'pypi'}));
+    badlistAll  = [...npm, ...pypi].sort((a, b) => a.name.localeCompare(b.name));
+
+    renderBadlist(badlistAll);
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="5" style="color:var(--red)">Failed to load badlist.</td></tr>`;
+    }
+  }
+}
+
+function filterBadlist() {
+  const q = document.getElementById('badlist-filter').value.trim().toLowerCase();
+  const filtered = q
+    ? badlistAll.filter(e =>
+        e.name.toLowerCase().includes(q) ||
+        e.ecosystem.toLowerCase().includes(q) ||
+        (e.reason || '').toLowerCase().includes(q))
+    : badlistAll;
+  renderBadlist(filtered);
+}
+
+function renderBadlist(entries) {
+  const tbody = document.getElementById('badlist-tbody');
+  const count = document.getElementById('badlist-count');
+  count.textContent = `(${entries.length} entries)`;
+
+  if (!entries.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No entries.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = entries.map(e => {
+    const sev = (e.severity || 'info').toLowerCase();
+    const sevColor = {critical:'var(--red)',high:'var(--amber)',medium:'#f97316',low:'var(--muted)',info:'var(--muted)'}[sev] || 'var(--muted)';
+    const ver = e.version && e.version !== '*' ? esc(e.version) : '<span style="color:var(--muted)">all versions</span>';
+    return `<tr>
+      <td class="mono">${esc(e.name)}</td>
+      <td>${esc(e.ecosystem)}</td>
+      <td>${ver}</td>
+      <td><span style="color:${sevColor};font-size:11px;font-weight:600;text-transform:uppercase">${esc(e.severity || 'info')}</span></td>
+      <td style="color:var(--muted)">${esc(e.reason || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Finding Expander (Claude) ─────────────────────────────────────────────────
+
+async function expandFinding(pkg, finding, btnEl) {
+  const card = btnEl.closest('.finding-card');
+  let explanationEl = card.querySelector('.finding-explanation');
+
+  if (explanationEl) {
+    explanationEl.remove();
+    btnEl.textContent = 'Explain';
+    return;
+  }
+
+  btnEl.disabled = true;
+  btnEl.textContent = 'Asking Claude…';
+
+  try {
+    const res = await apiFetch('/api/v1/findings/expand', {
+      method: 'POST',
+      body: JSON.stringify({ package: pkg, finding }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (res.status === 501) {
+        alert('Claude is not enabled on this server (set ANTHROPIC_API_KEY).');
+      } else {
+        alert(data.error || 'Explanation failed.');
+      }
+      return;
+    }
+
+    explanationEl = document.createElement('div');
+    explanationEl.className = 'finding-explanation';
+    explanationEl.style.cssText = 'margin-top:10px;padding:10px 12px;background:rgba(99,102,241,.08);border-left:2px solid var(--accent);border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap';
+    explanationEl.textContent = data.explanation || '';
+    card.appendChild(explanationEl);
+    btnEl.textContent = 'Hide';
+  } catch (e) {
+    if (e.message !== 'Unauthorized') alert('Network error');
+  } finally {
+    btnEl.disabled = false;
   }
 }
 

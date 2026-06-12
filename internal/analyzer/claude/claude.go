@@ -293,6 +293,88 @@ func extractZip(data []byte) ([]fileEntry, error) {
 	return files, nil
 }
 
+// ── Finding Expander ──────────────────────────────────────────────────────────
+
+// Expander calls Claude to produce a detailed explanation of a single finding.
+type Expander struct {
+	apiKey string
+	http   *http.Client
+}
+
+// NewExpander returns an Expander. Returns nil when apiKey is empty.
+func NewExpander(apiKey string) *Expander {
+	if apiKey == "" {
+		return nil
+	}
+	return &Expander{apiKey: apiKey, http: &http.Client{Timeout: analysisTimeout}}
+}
+
+// Explain asks Claude to explain a finding in plain English.
+func (e *Expander) Explain(ctx context.Context, pkg shield.PackageRef, finding shield.Finding) (string, error) {
+	if e == nil {
+		return "", fmt.Errorf("claude: expander not configured (no API key)")
+	}
+
+	prompt := fmt.Sprintf(`You are a package security analyst reviewing a dependency finding.
+
+Package: %s/%s@%s
+Finding type: %s
+Severity: %s
+Title: %s
+Description: %s
+
+Provide a plain-English explanation with these sections (use short paragraphs, no markdown headers):
+1. What this finding means and what the suspicious code pattern does
+2. The likely intent or impact if this is malicious (data theft, supply chain attack, persistence, etc.)
+3. Whether this looks like a genuine threat or a possible false positive, and why
+4. What the developer should do (remove the package, investigate further, add an exception, etc.)
+
+Be concise — 3 to 4 short paragraphs total.`,
+		pkg.Ecosystem, pkg.Name, pkg.Version,
+		finding.Type, finding.Severity, finding.Title, finding.Description,
+	)
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model":      model,
+		"max_tokens": 512,
+		"messages":   []map[string]string{{"role": "user", "content": prompt}},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("expander request: %w", err)
+	}
+	req.Header.Set("x-api-key", e.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+
+	resp, err := e.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("expander api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("expander api %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	var apiResp struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("expander decode: %w", err)
+	}
+	if len(apiResp.Content) == 0 || apiResp.Content[0].Type != "text" {
+		return "", fmt.Errorf("expander: unexpected response structure")
+	}
+
+	return apiResp.Content[0].Text, nil
+}
+
 func parseSeverity(s string) shield.Severity {
 	switch strings.ToLower(s) {
 	case "critical":

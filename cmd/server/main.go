@@ -11,7 +11,7 @@ import (
 
 	"github.com/homes853/cipher-shield/internal/analyzer"
 	"github.com/homes853/cipher-shield/internal/analyzer/badlist"
-	"github.com/homes853/cipher-shield/internal/analyzer/claude"
+	claudeanalyzer "github.com/homes853/cipher-shield/internal/analyzer/claude"
 	"github.com/homes853/cipher-shield/internal/analyzer/cve"
 	"github.com/homes853/cipher-shield/internal/analyzer/heuristic"
 	"github.com/homes853/cipher-shield/internal/api"
@@ -70,17 +70,20 @@ func main() {
 	cfg.Mode = *mode
 
 	var claudeAn analyzer.Analyzer
+	var expander *claudeanalyzer.Expander
 	if *anthropicKey != "" {
 		log.Printf("[startup] Claude Opus analysis enabled")
-		claudeAn = claude.New(*anthropicKey)
+		claudeAn = claudeanalyzer.New(*anthropicKey)
+		expander = claudeanalyzer.NewExpander(*anthropicKey)
 	} else {
 		log.Printf("[startup] Claude analysis disabled (set ANTHROPIC_API_KEY to enable)")
 	}
 
+	bl := badlist.NewFull("")
 	pl := pipeline.New(
 		store,
 		cfg,
-		badlist.New(),
+		bl,
 		cve.New(),
 		heuristic.New(),
 		claudeAn,
@@ -129,7 +132,7 @@ func main() {
 		log.Printf("[startup] WARNING: SHIELD_PROXY_TOKEN not set — proxy reporting unauthenticated (dev mode)")
 	}
 
-	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin)
+	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin, expander, bl)
 
 	if *tlsCert != "" && *tlsKey != "" {
 		log.Printf("[startup] TLS enabled — API + dashboard on https://%s", *apiAddr)

@@ -30,6 +30,13 @@ type badlistData struct {
 type badlistAnalyzer struct {
 	npm  map[string][]badEntry // name → entries
 	pypi map[string][]badEntry
+	raw  []byte // original JSON, returned by RawJSON for API exposure
+}
+
+// FullAnalyzer combines the Analyzer interface with raw JSON access for API exposure.
+type FullAnalyzer interface {
+	analyzer.Analyzer
+	RawJSON() []byte
 }
 
 // New loads the embedded known-bad list and returns an Analyzer.
@@ -37,9 +44,18 @@ func New() analyzer.Analyzer {
 	return NewWithOverride("")
 }
 
+// NewFull returns a FullAnalyzer (Analyzer + RawJSON) with an optional override path.
+func NewFull(overridePath string) FullAnalyzer {
+	return newBadlist(overridePath)
+}
+
 // NewWithOverride loads from overridePath if the file exists, otherwise falls
 // back to the embedded list. Pass "" to always use the embedded list.
 func NewWithOverride(overridePath string) analyzer.Analyzer {
+	return newBadlist(overridePath)
+}
+
+func newBadlist(overridePath string) *badlistAnalyzer {
 	raw := knownBadJSON
 	if overridePath != "" {
 		if data, err := os.ReadFile(overridePath); err == nil {
@@ -53,6 +69,7 @@ func NewWithOverride(overridePath string) analyzer.Analyzer {
 	a := &badlistAnalyzer{
 		npm:  make(map[string][]badEntry),
 		pypi: make(map[string][]badEntry),
+		raw:  raw,
 	}
 	for _, e := range data.NPM {
 		a.npm[strings.ToLower(e.Name)] = append(a.npm[strings.ToLower(e.Name)], e)
@@ -64,6 +81,9 @@ func NewWithOverride(overridePath string) analyzer.Analyzer {
 }
 
 func (b *badlistAnalyzer) Name() string { return "known-bad" }
+
+// RawJSON returns the known-bad list as the original JSON bytes (for API exposure).
+func (b *badlistAnalyzer) RawJSON() []byte { return b.raw }
 
 func (b *badlistAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, _ []byte) ([]shield.Finding, error) {
 	var entries []badEntry
