@@ -31,9 +31,9 @@ func openPostgres(dsn string) (*postgresStore, error) {
 	return s, nil
 }
 
-func (s *postgresStore) Migrate() error {
-	_, err := s.db.Exec(`
-CREATE TABLE IF NOT EXISTS scan_cache (
+var postgresMigrations = []string{
+	// v1: initial schema
+	`CREATE TABLE IF NOT EXISTS scan_cache (
     id          TEXT PRIMARY KEY,
     ecosystem   TEXT NOT NULL,
     name        TEXT NOT NULL,
@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS scan_cache (
     scanned_at  TIMESTAMPTZ NOT NULL,
     expires_at  TIMESTAMPTZ NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS exceptions (
     exception_id TEXT PRIMARY KEY,
     ecosystem    TEXT NOT NULL,
@@ -54,7 +53,6 @@ CREATE TABLE IF NOT EXISTS exceptions (
     created_at   TIMESTAMPTZ NOT NULL,
     expires_at   TIMESTAMPTZ
 );
-
 CREATE TABLE IF NOT EXISTS scan_history (
     scan_id     TEXT PRIMARY KEY,
     ecosystem   TEXT NOT NULL,
@@ -64,17 +62,42 @@ CREATE TABLE IF NOT EXISTS scan_history (
     result_json TEXT NOT NULL,
     scanned_at  TIMESTAMPTZ NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS users (
     user_id       TEXT PRIMARY KEY,
     email         TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'analyst',
     created_at    TIMESTAMPTZ NOT NULL
-);
-`)
-	if err != nil {
-		return fmt.Errorf("migrate DDL: %w", err)
+);`,
+}
+
+func (s *postgresStore) Migrate() error {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
+		return fmt.Errorf("migrate: create schema_version: %w", err)
+	}
+
+	var current int
+	row := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`)
+	if err := row.Scan(&current); err != nil {
+		return fmt.Errorf("migrate: read version: %w", err)
+	}
+
+	for i := current; i < len(postgresMigrations); i++ {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("migrate v%d: begin: %w", i+1, err)
+		}
+		if _, err := tx.Exec(postgresMigrations[i]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate v%d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES ($1)`, i+1); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate v%d: record version: %w", i+1, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("migrate v%d: commit: %w", i+1, err)
+		}
 	}
 	return nil
 }
@@ -285,6 +308,17 @@ func (s *postgresStore) DeleteException(id string) error {
 		return fmt.Errorf("exception not found: %s", id)
 	}
 	return nil
+}
+
+func (s *postgresStore) PruneHistory(retentionDays int) (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM scan_history WHERE scanned_at < NOW() - ($1 || ' days')::interval`,
+		retentionDays,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("PruneHistory: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 func (s *postgresStore) ListHistory(limit int) ([]shield.ScanResult, error) {

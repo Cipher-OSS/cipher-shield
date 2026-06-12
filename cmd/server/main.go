@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/homes853/cipher-shield/internal/analyzer"
 	"github.com/homes853/cipher-shield/internal/analyzer/badlist"
@@ -33,6 +35,7 @@ func main() {
 	tlsCert      := flag.String("tls-cert",       envOr("SHIELD_TLS_CERT",      ""),             "Path to TLS certificate file (enables HTTPS on API port)")
 	tlsKey       := flag.String("tls-key",        envOr("SHIELD_TLS_KEY",       ""),             "Path to TLS private key file")
 	corsOrigin   := flag.String("cors-origin",    envOr("SHIELD_CORS_ORIGIN",   ""),             "Allowed CORS origin (e.g. https://shield.company.com); default: *")
+	historyDays  := flag.Int("history-days",      envOrInt("SHIELD_HISTORY_DAYS", 30),           "Days of scan history to retain (0 = keep forever)")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -82,6 +85,22 @@ func main() {
 		heuristic.New(),
 		claudeAn,
 	)
+
+	// ── History pruning ───────────────────────────────────────────────────────
+	if *historyDays > 0 {
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for ; ; <-ticker.C {
+				n, err := store.PruneHistory(*historyDays)
+				if err != nil {
+					log.Printf("[prune] error: %v", err)
+				} else if n > 0 {
+					log.Printf("[prune] removed %d scan history rows older than %d days", n, *historyDays)
+				}
+			}
+		}()
+	}
 
 	// ── Registry proxy ────────────────────────────────────────────────────────
 	proxyCfg := proxy.Config{
@@ -133,6 +152,15 @@ func defaultDBPath() string {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envOrInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }

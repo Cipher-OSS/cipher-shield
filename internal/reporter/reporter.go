@@ -33,14 +33,26 @@ func New(serverURL, token string) *Reporter {
 }
 
 // Report ships the result to the server in a background goroutine.
+// Retries up to 3 times with exponential backoff on transient failures.
 // Safe to call on a nil Reporter.
 func (r *Reporter) Report(result *shield.ScanResult) {
 	if r == nil || result == nil {
 		return
 	}
 	go func() {
-		if err := r.send(result); err != nil {
-			log.Printf("[reporter] %s@%s: %v", result.Package.Name, result.Package.Version, err)
+		backoff := time.Second
+		for attempt := 1; attempt <= 3; attempt++ {
+			err := r.send(result)
+			if err == nil {
+				return
+			}
+			if attempt == 3 {
+				log.Printf("[reporter] %s@%s: giving up after 3 attempts: %v", result.Package.Name, result.Package.Version, err)
+				return
+			}
+			log.Printf("[reporter] %s@%s: attempt %d failed, retrying in %s: %v", result.Package.Name, result.Package.Version, attempt, backoff, err)
+			time.Sleep(backoff)
+			backoff *= 2
 		}
 	}()
 }

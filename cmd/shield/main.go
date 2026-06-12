@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,6 +40,8 @@ func main() {
 		runScan(os.Args[2:])
 	case "proxy":
 		runProxy(os.Args[2:])
+	case "update":
+		runUpdate()
 	case "version":
 		fmt.Printf("cipher-shield %s\n", version)
 	default:
@@ -97,10 +100,13 @@ func buildPipeline() *pipeline.Pipeline {
 		claudeAnalyzer = claude.New(anthropicKey)
 	}
 
+	// Use local override if present (written by cipher-shield update).
+	overridePath := dirOf(dbPath) + "/known_bad.json"
+
 	return pipeline.New(
 		store,
 		cfg,
-		badlist.New(),
+		badlist.NewWithOverride(overridePath),
 		cve.New(),
 		heuristic.New(),
 		claudeAnalyzer,
@@ -414,6 +420,51 @@ func proxyStop() {
 	fmt.Println("✓ cipher-shield proxy stopped")
 }
 
+const knownBadURL = "https://raw.githubusercontent.com/homes853/cipher-shield/master/internal/analyzer/badlist/data/known_bad.json"
+
+func runUpdate() {
+	dest := envOr("SHIELD_DB_PATH", defaultDBPath())
+	dest = dirOf(dest) + "/known_bad.json"
+
+	fmt.Printf("Fetching latest known-bad list from GitHub...\n")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(knownBadURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: fetch failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "error: server returned %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
+
+	var data struct {
+		NPM  []json.RawMessage `json:"npm"`
+		PyPI []json.RawMessage `json:"pypi"`
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: read failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid JSON from server: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(dirOf(dest), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "error: mkdir: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(dest, body, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "error: write: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Updated: %s (%d npm, %d pypi entries)\n", dest, len(data.NPM), len(data.PyPI))
+	fmt.Printf("Restart cipher-shield proxy for the new list to take effect.\n")
+}
+
 func printUsage() {
 	fmt.Fprint(os.Stderr, `cipher-shield — AI-powered package security firewall
 
@@ -424,6 +475,7 @@ Usage:
   cipher-shield proxy start [--addr 127.0.0.1:7070]  Start proxy (configures npm + pip automatically)
   cipher-shield proxy stop                            Stop proxy (restores npm + pip config)
   cipher-shield proxy status                          Show proxy status
+  cipher-shield update                            Fetch latest known-bad list from GitHub
   cipher-shield version                           Print version
 
 Environment:
@@ -474,6 +526,7 @@ func (n *noopStore) ListExceptions() ([]shield.Exception, error)              { 
 func (n *noopStore) AddException(_ shield.Exception) error                    { return nil }
 func (n *noopStore) DeleteException(_ string) error                           { return nil }
 func (n *noopStore) ListHistory(_ int) ([]shield.ScanResult, error)           { return nil, nil }
+func (n *noopStore) PruneHistory(_ int) (int64, error)                        { return 0, nil }
 func (n *noopStore) CreateUser(_, _, _ string) (*shield.User, error)          { return nil, nil }
 func (n *noopStore) GetUserByEmail(_ string) (*shield.User, error)            { return nil, nil }
 func (n *noopStore) GetUserByID(_ string) (*shield.User, error)               { return nil, nil }

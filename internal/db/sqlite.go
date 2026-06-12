@@ -32,9 +32,11 @@ func openSQLite(path string) (*sqliteStore, error) {
 	return s, nil
 }
 
-func (s *sqliteStore) Migrate() error {
-	_, err := s.db.Exec(`
-CREATE TABLE IF NOT EXISTS scan_cache (
+// sqliteMigrations lists sequential schema migrations. Each entry is applied
+// exactly once; the version number is stored in the schema_version table.
+var sqliteMigrations = []string{
+	// v1: initial schema
+	`CREATE TABLE IF NOT EXISTS scan_cache (
     id          TEXT PRIMARY KEY,
     ecosystem   TEXT NOT NULL,
     name        TEXT NOT NULL,
@@ -44,7 +46,6 @@ CREATE TABLE IF NOT EXISTS scan_cache (
     scanned_at  DATETIME NOT NULL,
     expires_at  DATETIME NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS exceptions (
     exception_id TEXT PRIMARY KEY,
     ecosystem    TEXT NOT NULL,
@@ -55,7 +56,6 @@ CREATE TABLE IF NOT EXISTS exceptions (
     created_at   DATETIME NOT NULL,
     expires_at   DATETIME
 );
-
 CREATE TABLE IF NOT EXISTS scan_history (
     scan_id     TEXT PRIMARY KEY,
     ecosystem   TEXT NOT NULL,
@@ -65,17 +65,43 @@ CREATE TABLE IF NOT EXISTS scan_history (
     result_json TEXT NOT NULL,
     scanned_at  DATETIME NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS users (
     user_id       TEXT PRIMARY KEY,
     email         TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'analyst',
     created_at    DATETIME NOT NULL
-);
-`)
-	if err != nil {
-		return fmt.Errorf("migrate DDL: %w", err)
+);`,
+}
+
+func (s *sqliteStore) Migrate() error {
+	// Ensure schema_version table exists before anything else.
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
+		return fmt.Errorf("migrate: create schema_version: %w", err)
+	}
+
+	var current int
+	row := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`)
+	if err := row.Scan(&current); err != nil {
+		return fmt.Errorf("migrate: read version: %w", err)
+	}
+
+	for i := current; i < len(sqliteMigrations); i++ {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("migrate v%d: begin: %w", i+1, err)
+		}
+		if _, err := tx.Exec(sqliteMigrations[i]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate v%d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, i+1); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate v%d: record version: %w", i+1, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("migrate v%d: commit: %w", i+1, err)
+		}
 	}
 	return nil
 }
@@ -383,6 +409,17 @@ LIMIT ?
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+func (s *sqliteStore) PruneHistory(retentionDays int) (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM scan_history WHERE scanned_at < datetime('now', ? || ' days')`,
+		fmt.Sprintf("-%d", retentionDays),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("PruneHistory: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // nullTime converts *time.Time to sql.NullTime for nullable DB columns.

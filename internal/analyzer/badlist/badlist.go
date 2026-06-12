@@ -2,9 +2,10 @@ package badlist
 
 import (
 	_ "embed"
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	analyzer "github.com/homes853/cipher-shield/internal/analyzer"
@@ -33,8 +34,20 @@ type badlistAnalyzer struct {
 
 // New loads the embedded known-bad list and returns an Analyzer.
 func New() analyzer.Analyzer {
+	return NewWithOverride("")
+}
+
+// NewWithOverride loads from overridePath if the file exists, otherwise falls
+// back to the embedded list. Pass "" to always use the embedded list.
+func NewWithOverride(overridePath string) analyzer.Analyzer {
+	raw := knownBadJSON
+	if overridePath != "" {
+		if data, err := os.ReadFile(overridePath); err == nil {
+			raw = data
+		}
+	}
 	var data badlistData
-	if err := json.Unmarshal(knownBadJSON, &data); err != nil {
+	if err := json.Unmarshal(raw, &data); err != nil {
 		panic(fmt.Sprintf("badlist: parse known_bad.json: %v", err))
 	}
 	a := &badlistAnalyzer{

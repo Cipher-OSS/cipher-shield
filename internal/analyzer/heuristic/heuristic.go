@@ -294,10 +294,10 @@ var (
 
 func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 	var res Result
-	addFinding := func(score int, sev shield.Severity, title, desc string) {
+	addFinding := func(score int, findingType string, sev shield.Severity, title, desc string) {
 		res.Score += score
 		res.Findings = append(res.Findings, shield.Finding{
-			Type:        "heuristic",
+			Type:        findingType,
 			Severity:    sev,
 			Title:       title,
 			Description: desc,
@@ -317,24 +317,24 @@ func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 				if cmd, ok := scripts[hook]; ok {
 					installScriptCount++
 					if reNetworkInScript.MatchString(cmd) {
-						addFinding(ScoreNetworkInInstall, shield.SeverityHigh,
+						addFinding(ScoreNetworkInInstall, "network-in-install", shield.SeverityHigh,
 							"Install script makes network request",
 							fmt.Sprintf("The '%s' script downloads from the network: %s", hook, truncate(cmd, 120)))
 					}
 					if reRemoteScript.MatchString(cmd) {
-						addFinding(ScoreRemoteScript, shield.SeverityCritical,
+						addFinding(ScoreRemoteScript, "remote-script", shield.SeverityCritical,
 							"Install script downloads and executes remote code",
 							fmt.Sprintf("'%s' script pipes remote content to a shell: %s", hook, truncate(cmd, 120)))
 					}
 					if reChildProc.MatchString(cmd) {
-						addFinding(ScoreChildProcess, shield.SeverityMedium,
+						addFinding(ScoreChildProcess, "child-proc", shield.SeverityMedium,
 							"Install script spawns child processes",
 							fmt.Sprintf("'%s' script: %s", hook, truncate(cmd, 120)))
 					}
 				}
 			}
 			if installScriptCount > 2 {
-				addFinding(ScoreManyInstallHooks, shield.SeverityMedium,
+				addFinding(ScoreManyInstallHooks, "many-install-hooks", shield.SeverityMedium,
 					"Package has multiple install lifecycle hooks",
 					fmt.Sprintf("%d install hooks (preinstall, install, postinstall) — unusual for legitimate packages", installScriptCount))
 			}
@@ -344,12 +344,12 @@ func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 		if base == "setup.py" || strings.HasSuffix(base, "install.js") ||
 			strings.HasSuffix(base, "postinstall.js") || strings.HasSuffix(base, "preinstall.js") {
 			if reNetworkInScript.MatchString(content) {
-				addFinding(ScoreNetworkInInstall, shield.SeverityHigh,
+				addFinding(ScoreNetworkInInstall, "network-in-install", shield.SeverityHigh,
 					"Install script makes network request",
 					fmt.Sprintf("File %s downloads from the network during install", filepath.Base(f.path)))
 			}
 			if reRemoteScript.MatchString(content) {
-				addFinding(ScoreRemoteScript, shield.SeverityCritical,
+				addFinding(ScoreRemoteScript, "remote-script", shield.SeverityCritical,
 					"Install script downloads and executes remote code",
 					fmt.Sprintf("File %s pipes remote content to a shell", filepath.Base(f.path)))
 			}
@@ -357,55 +357,55 @@ func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 
 		// All source files: check for obfuscation and env exfil
 		if reBase64Exec.MatchString(content) {
-			addFinding(ScoreBase64Exec, shield.SeverityHigh,
+			addFinding(ScoreBase64Exec, "obfuscation", shield.SeverityHigh,
 				"Base64-encoded code execution detected",
 				fmt.Sprintf("File %s decodes and executes base64-encoded content", filepath.Base(f.path)))
 		}
 		if reObfuscation.MatchString(content) {
-			addFinding(ScoreObfuscation, shield.SeverityHigh,
+			addFinding(ScoreObfuscation, "obfuscation", shield.SeverityHigh,
 				"Obfuscated code execution (eval+atob)",
 				fmt.Sprintf("File %s uses eval(atob(...)) — classic obfuscation pattern", filepath.Base(f.path)))
 		}
 		if reEnvExfil.MatchString(content) {
-			addFinding(ScoreEnvExfil, shield.SeverityHigh,
+			addFinding(ScoreEnvExfil, "env-exfil", shield.SeverityHigh,
 				"Possible environment variable exfiltration",
 				fmt.Sprintf("File %s reads environment variables and makes network calls in proximity", filepath.Base(f.path)))
 		}
 		if reFunctionCtor.MatchString(content) {
-			addFinding(ScoreFunctionCtor, shield.SeverityHigh,
+			addFinding(ScoreFunctionCtor, "obfuscation", shield.SeverityHigh,
 				"Dynamic code construction via Function constructor",
 				fmt.Sprintf("File %s uses new Function() to construct and execute code at runtime", filepath.Base(f.path)))
 		}
 		if reCharCodeObfusc.MatchString(content) {
-			addFinding(ScoreCharCodeObfusc, shield.SeverityHigh,
+			addFinding(ScoreCharCodeObfusc, "obfuscation", shield.SeverityHigh,
 				"Character-code obfuscation detected",
 				fmt.Sprintf("File %s builds strings via String.fromCharCode() — common obfuscation technique", filepath.Base(f.path)))
 		}
 		if reJSObfuscator.MatchString(content) {
-			addFinding(ScoreJSObfuscator, shield.SeverityMedium,
+			addFinding(ScoreJSObfuscator, "obfuscation", shield.SeverityMedium,
 				"JS obfuscator output detected (_0x variables)",
 				fmt.Sprintf("File %s contains _0x-prefixed identifiers characteristic of automated JS obfuscators", filepath.Base(f.path)))
 		}
 		if reWebhookExfil.MatchString(content) {
-			addFinding(ScoreWebhookExfil, shield.SeverityCritical,
+			addFinding(ScoreWebhookExfil, "webhook-exfil", shield.SeverityCritical,
 				"Webhook exfiltration endpoint in source",
 				fmt.Sprintf("File %s contains a Discord/Slack/Telegram webhook URL — common data exfiltration channel", filepath.Base(f.path)))
 		}
 		if reStagingDomain.MatchString(content) {
-			addFinding(ScoreStagingDomain, shield.SeverityHigh,
+			addFinding(ScoreStagingDomain, "staging-domain", shield.SeverityHigh,
 				"Known payload-staging domain referenced",
 				fmt.Sprintf("File %s references a domain commonly used to stage attack payloads (raw.githubusercontent.com, pastebin, etc.)", filepath.Base(f.path)))
 		}
 	}
 
 	if hasBinary {
-		addFinding(ScoreNativeBinary, shield.SeverityMedium,
+		addFinding(ScoreNativeBinary, "native-binary", shield.SeverityMedium,
 			"Precompiled native binary included in package",
 			"Package contains a compiled binary (.node, .so, .dll, .dylib) — cannot be statically analyzed for malicious behavior")
 	}
 
 	if !hasReadme && len(files) > 0 {
-		addFinding(ScoreNoReadme, shield.SeverityInfo,
+		addFinding(ScoreNoReadme, "no-readme", shield.SeverityInfo,
 			"Package has no README",
 			"Legitimate packages almost always include a README file")
 	}

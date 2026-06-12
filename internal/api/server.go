@@ -205,10 +205,12 @@ func (s *Server) handleScanLockfile(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	type entry struct {
-		Package shield.PackageRef `json:"package"`
+		Package shield.PackageRef  `json:"package"`
 		Result  *shield.ScanResult `json:"result,omitempty"`
 		Error   string             `json:"error,omitempty"`
 	}
+
+	// Pass 1: Tier 1+2 only (fast, no tarball needed).
 	results := make([]entry, 0, len(refs))
 	for _, ref := range refs {
 		result, err := s.scanner.Analyze(ctx, ref, nil)
@@ -218,6 +220,23 @@ func (s *Server) handleScanLockfile(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, entry{Package: ref, Result: result})
 	}
+
+	// Pass 2: for warn/block results fetch tarball and rescan (Tier 3+4).
+	for i, e := range results {
+		if e.Result == nil || e.Result.Verdict == shield.VerdictAllow {
+			continue
+		}
+		tarball, err := registry.FetchTarball(ctx, e.Package, "cipher-shield")
+		if err != nil || len(tarball) == 0 {
+			continue
+		}
+		result, err := s.scanner.Analyze(ctx, e.Package, tarball)
+		if err != nil {
+			continue
+		}
+		results[i].Result = result
+	}
+
 	jsonOK(w, map[string]interface{}{"filename": filename, "count": len(results), "results": results})
 }
 

@@ -22,6 +22,7 @@ type Store interface {
 
 	// Scan history (recent scans for dashboard)
 	ListHistory(limit int) ([]shield.ScanResult, error)
+	PruneHistory(retentionDays int) (int64, error)
 
 	// Users
 	CreateUser(email, passwordHash, role string) (*shield.User, error)
