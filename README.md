@@ -99,6 +99,8 @@ That's it. All npm and pip installs are now screened. Scan results appear on the
 
 ### Developer workstation (one-liner)
 
+**macOS / Linux**
+
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...   # optional — enables Claude analysis
 curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/install.sh | sh
@@ -108,6 +110,20 @@ The installer:
 - Downloads the `cipher-shield` binary to `/usr/local/bin`
 - Installs a macOS LaunchAgent or Linux systemd user unit so the proxy starts on login
 - Saves `ANTHROPIC_API_KEY` to `~/.cipher-shield/cipher-shield.env`
+
+**Windows (PowerShell)**
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."   # optional — enables Claude analysis
+irm https://raw.githubusercontent.com/homes853/cipher-shield/master/install.ps1 | iex
+```
+
+The installer:
+- Downloads `cipher-shield.exe` to `%LOCALAPPDATA%\cipher-shield\bin`
+- Adds that directory to your user PATH
+- Saves `ANTHROPIC_API_KEY` to `%USERPROFILE%\.cipher-shield\cipher-shield.env`
+
+Restart your terminal after install for PATH changes to take effect.
 
 ### Build from source
 
@@ -395,8 +411,16 @@ internal/
 
 ## Uninstall
 
+**macOS / Linux**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.sh | sh
+```
+
+**Windows**
+
+```powershell
+irm https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.ps1 | iex
 ```
 
 Removes the binary, stops and removes the daemon, and restores your original npm/pip registry configuration.

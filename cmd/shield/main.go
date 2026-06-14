@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -81,7 +83,7 @@ func buildPipelineWithStore(store db.Store) *pipeline.Pipeline {
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		claudeAnalyzer = claude.New(key)
 	}
-	overridePath := dirOf(envOr("SHIELD_DB_PATH", defaultDBPath())) + "/known_bad.json"
+	overridePath := filepath.Join(dirOf(envOr("SHIELD_DB_PATH", defaultDBPath())), "known_bad.json")
 	return pipeline.New(store, cfg, badlist.NewWithOverride(overridePath), cve.New(), heuristic.New(), claudeAnalyzer)
 }
 
@@ -372,10 +374,15 @@ func proxyStart(args []string) {
 	// Write PID
 	proxyctl.WritePID(os.Getpid())
 
-	// Handle signals for clean shutdown
+	// Handle signals for clean shutdown.
+	// SIGTERM is not available on Windows; os.Interrupt (Ctrl+C) covers that platform.
 	go func() {
 		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		sigs := []os.Signal{os.Interrupt}
+		if runtime.GOOS != "windows" {
+			sigs = append(sigs, syscall.SIGTERM)
+		}
+		signal.Notify(c, sigs...)
 		<-c
 		fmt.Println("\n→ Stopping cipher-shield proxy...")
 		proxyctl.RestoreNPM()
@@ -427,8 +434,13 @@ func proxyStop() {
 		proxyctl.RemovePID()
 		return
 	}
-	proc.Signal(syscall.SIGTERM)
-	fmt.Printf("→ Sent SIGTERM to proxy (pid %d)\n", pid)
+	// SIGTERM is not supported on Windows; Kill() works on all platforms.
+	if runtime.GOOS == "windows" {
+		proc.Kill()
+	} else {
+		proc.Signal(syscall.SIGTERM)
+	}
+	fmt.Printf("→ Stopped proxy (pid %d)\n", pid)
 	proxyctl.RestoreNPM()
 	proxyctl.RestorePIP()
 	proxyctl.RemovePID()
@@ -439,7 +451,7 @@ const knownBadURL = "https://raw.githubusercontent.com/homes853/cipher-shield/ma
 
 func runUpdate() {
 	dest := envOr("SHIELD_DB_PATH", defaultDBPath())
-	dest = dirOf(dest) + "/known_bad.json"
+	dest = filepath.Join(dirOf(dest), "known_bad.json")
 
 	fmt.Printf("Fetching latest known-bad list from GitHub...\n")
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -615,15 +627,11 @@ Exit codes:
 
 func defaultDBPath() string {
 	home, _ := os.UserHomeDir()
-	return home + "/.cipher-shield/shield.db"
+	return filepath.Join(home, ".cipher-shield", "shield.db")
 }
 
 func dirOf(path string) string {
-	idx := strings.LastIndex(path, "/")
-	if idx < 0 {
-		return "."
-	}
-	return path[:idx]
+	return filepath.Dir(path)
 }
 
 func envOr(key, fallback string) string {

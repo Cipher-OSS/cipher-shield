@@ -123,9 +123,8 @@ gcloud run deploy cipher-shield \
   --port=8080 \
   --vpc-connector=cipher-connector \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="SHIELD_MODE=enforce" \
+  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require" \
   --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
-  --set-env-vars="DATABASE_URL=postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require" \
   --allow-unauthenticated \
   --min-instances=0 \
   --max-instances=2
