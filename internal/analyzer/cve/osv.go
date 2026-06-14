@@ -126,22 +126,22 @@ func (c *osvClient) Analyze(ctx context.Context, pkg shield.PackageRef, _ []byte
 	return findings, nil
 }
 
-// parseCVSS extracts a numeric CVSS base score from the severity array.
-// Returns 0 if no CVSS_V3 score is found.
+// parseCVSS attempts to extract a numeric base score from OSV's severity array.
+// OSV stores CVSS vector strings (e.g. "CVSS:3.1/AV:N/AC:L/.../A:H"), not plain
+// numeric scores. Most entries return 0 here; cvssFromSeverity provides the fallback.
 func parseCVSS(severities []struct {
 	Type  string `json:"type"`
 	Score string `json:"score"`
 }) float64 {
 	for _, s := range severities {
-		if s.Type == "CVSS_V3" {
-			// Score is a CVSS vector string like "CVSS:3.1/AV:N/AC:L/.../8.8"
-			// The base score is the last slash-delimited segment.
-			parts := strings.Split(s.Score, "/")
-			if len(parts) > 0 {
-				var score float64
-				fmt.Sscanf(parts[len(parts)-1], "%f", &score)
-				return score
-			}
+		if s.Type != "CVSS_V3" && s.Type != "CVSS_V2" {
+			continue
+		}
+		// A small number of advisories include a plain numeric score rather than a
+		// vector string. Accept it only when it parses cleanly and is in range.
+		var score float64
+		if _, err := fmt.Sscan(s.Score, &score); err == nil && score > 0 && score <= 10 {
+			return score
 		}
 	}
 	return 0

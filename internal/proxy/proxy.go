@@ -306,9 +306,10 @@ func isPyPISimple(path string) bool {
 }
 
 // shouldBlockName checks a package name against Tier 1 and the exception list.
-// Returns true only in enforce mode when the name is known-bad and not excepted.
+// In enforce mode it returns true (block). In warn/audit mode it logs a warning
+// but always returns false so the request passes through.
 func (p *Proxy) shouldBlockName(ctx context.Context, eco shield.Ecosystem, name string) bool {
-	if p.cfg.NameChecker == nil || p.cfg.Mode != ModeEnforce {
+	if p.cfg.NameChecker == nil {
 		return false
 	}
 	pkg := shield.PackageRef{Ecosystem: eco, Name: name}
@@ -317,14 +318,20 @@ func (p *Proxy) shouldBlockName(ctx context.Context, eco shield.Ecosystem, name 
 		return false
 	}
 	for _, f := range findings {
-		if f.Severity == shield.SeverityCritical || f.Severity == shield.SeverityHigh {
-			if p.cfg.Exceptions != nil && p.cfg.Exceptions.IsExcepted(eco, name, "") {
-				log.Printf("[proxy] name check: %s (%s) blocked but excepted — passing through", name, eco)
-				return false
-			}
-			log.Printf("[proxy] name check: %s (%s) blocked at metadata level", name, eco)
+		if f.Severity != shield.SeverityCritical && f.Severity != shield.SeverityHigh {
+			continue
+		}
+		if p.cfg.Exceptions != nil && p.cfg.Exceptions.IsExcepted(eco, name, "") {
+			log.Printf("[proxy] name check: %s (%s) known-bad but excepted — passing through", name, eco)
+			return false
+		}
+		if p.cfg.Mode == ModeEnforce {
+			log.Printf("[proxy] name check: %s (%s) BLOCKED at metadata level", name, eco)
 			return true
 		}
+		// warn / audit: flag it but do not block
+		log.Printf("[proxy] WARNING: %s (%s) is known-bad — passing through (mode=%s)", name, eco, p.cfg.Mode)
+		return false
 	}
 	return false
 }
@@ -386,7 +393,13 @@ func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
 
 	// Rewrite https://files.pythonhosted.org/packages/... → /packages/...
 	// so pip downloads tarballs through this proxy instead of directly.
-	rewritten := strings.ReplaceAll(string(body), "https://files.pythonhosted.org", "http://"+p.cfg.ListenAddr)
+	// Use the address pip actually connected to, not the raw listen address
+	// (which may be ":7070" with no host when bound to all interfaces).
+	proxyHost := p.cfg.ListenAddr
+	if proxyHost == "" || proxyHost[0] == ':' {
+		proxyHost = "localhost" + proxyHost
+	}
+	rewritten := strings.ReplaceAll(string(body), "https://files.pythonhosted.org", "http://"+proxyHost)
 
 	resp.Body = io.NopCloser(strings.NewReader(rewritten))
 	resp.ContentLength = int64(len(rewritten))

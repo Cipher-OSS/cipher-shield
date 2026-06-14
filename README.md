@@ -42,7 +42,7 @@ npm install axios          pip install requests
 
 **Tier 4 — Claude Opus**: Runs only when the heuristic score ≥ 30 or a high-CVSS CVE is found. Claude reads the actual install scripts and source code and returns a structured verdict with reasoning. This is the main differentiator — real code comprehension, not just signatures.
 
-Results are cached (24 h for clean packages, 1 h for warn/block) so each unique package version is only analyzed once across your team.
+Results are cached (4 h for clean packages, 1 h for warn/block) so each unique package version is only analyzed once across your team.
 
 ---
 

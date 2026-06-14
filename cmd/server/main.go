@@ -60,9 +60,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("[startup] db open: %v", err)
 	}
-	if err := store.Migrate(); err != nil {
-		log.Fatalf("[startup] db migrate: %v", err)
-	}
 	defer store.Close()
 
 	// ── Analysis pipeline ─────────────────────────────────────────────────────

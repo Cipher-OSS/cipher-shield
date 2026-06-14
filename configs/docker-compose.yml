@@ -14,6 +14,9 @@ version: "3.9"
 
 services:
   shield:
+    build:
+      context: ..
+      dockerfile: Dockerfile
     image: ghcr.io/homes853/cipher-shield:latest
     restart: unless-stopped
     ports:

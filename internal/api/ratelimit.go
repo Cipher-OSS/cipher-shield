@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -82,15 +83,11 @@ func (s *Server) rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
 // clientIP extracts the real client IP, respecting X-Forwarded-For for proxied deployments.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first (leftmost) IP, which is the client.
-		if i := 0; i < len(xff) {
-			for j := 0; j < len(xff); j++ {
-				if xff[j] == ',' {
-					return xff[:j]
-				}
-			}
+		// Take the first (leftmost) IP — that's the original client.
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
 		}
-		return xff
+		return strings.TrimSpace(xff)
 	}
 	// Strip port from RemoteAddr.
 	addr := r.RemoteAddr

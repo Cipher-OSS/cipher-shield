@@ -87,15 +87,20 @@ func (s *stubAnalyzer) Analyze(_ context.Context, _ shield.PackageRef, _ []byte)
 	return s.findings, s.err
 }
 
-// stubHeuristic satisfies the unexported pipeline.heuristicAnalyzer interface
-// (Analyzer + ScoreOnly). Embeds stubAnalyzer for Name/Analyze.
+// stubHeuristic satisfies the unexported pipeline.heuristicAnalyzer interface (AnalyzeFull).
 type stubHeuristic struct {
-	stubAnalyzer
-	score int
+	findings []shield.Finding
+	score    int
+	err      error
+	called   int32
 }
 
-func (s *stubHeuristic) ScoreOnly(_ context.Context, _ shield.PackageRef, _ []byte) int {
-	return s.score
+func (s *stubHeuristic) AnalyzeFull(_ context.Context, _ shield.PackageRef, tarball []byte) ([]shield.Finding, int, error) {
+	if len(tarball) == 0 {
+		return nil, 0, nil
+	}
+	atomic.AddInt32(&s.called, 1)
+	return s.findings, s.score, s.err
 }
 
 // ── Finding factories ─────────────────────────────────────────────────────────

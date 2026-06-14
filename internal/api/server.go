@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	shield "github.com/homes853/cipher-shield/internal"
 	"github.com/homes853/cipher-shield/internal/db"
@@ -190,12 +191,11 @@ func (s *Server) handleScanLockfile(w http.ResponseWriter, r *http.Request) {
 		}
 		defer f.Close()
 		filename = fh.Filename
-		buf := make([]byte, fh.Size)
-		if _, err := f.Read(buf); err != nil {
+		data, err = io.ReadAll(io.LimitReader(f, 4<<20))
+		if err != nil {
 			jsonError(w, "read error", http.StatusBadRequest)
 			return
 		}
-		data = buf
 	} else {
 		filename = r.URL.Query().Get("filename")
 		if filename == "" {
@@ -478,7 +478,7 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 }
 
 func newID() string {
-	return strconv.FormatInt(time.Now().UnixNano(), 36)
+	return uuid.New().String()
 }
 
 func bcryptHash(password string) (string, error) {

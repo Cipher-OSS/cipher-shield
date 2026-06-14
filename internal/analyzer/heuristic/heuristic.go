@@ -47,26 +47,29 @@ type Result struct {
 type heuristicAnalyzer struct{}
 
 // New returns a heuristicAnalyzer. The concrete type is returned so callers
-// can use it as a pipeline.heuristicAnalyzer (which requires ScoreOnly).
+// can use it as a pipeline.heuristicAnalyzer (which requires AnalyzeFull).
 func New() *heuristicAnalyzer { return &heuristicAnalyzer{} }
 
 func (h *heuristicAnalyzer) Name() string { return "heuristic" }
 
-func (h *heuristicAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, tarball []byte) ([]shield.Finding, error) {
+func (h *heuristicAnalyzer) Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) ([]shield.Finding, error) {
+	findings, _, err := h.AnalyzeFull(ctx, pkg, tarball)
+	return findings, err
+}
+
+// AnalyzeFull runs the full heuristic scan and returns both findings and the aggregate
+// risk score in a single tarball extraction. The pipeline uses this to avoid extracting
+// the tarball twice (once for the score gate, once for findings).
+func (h *heuristicAnalyzer) AnalyzeFull(_ context.Context, pkg shield.PackageRef, tarball []byte) ([]shield.Finding, int, error) {
 	if len(tarball) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	r, err := extract(pkg.Ecosystem, tarball)
 	if err != nil {
-		return nil, nil // non-fatal: can't extract = pass through
+		return nil, 0, nil // non-fatal: can't extract = pass through
 	}
 	res := analyzeFiles(r.files, r.hasReadme, r.hasBinary)
-	return res.Findings, nil
-}
-
-// ScoreOnly returns the risk score without producing findings (used by pipeline to gate Claude).
-func (h *heuristicAnalyzer) ScoreOnly(_ context.Context, pkg shield.PackageRef, tarball []byte) int {
-	return Score(pkg, tarball)
+	return res.Findings, res.Score, nil
 }
 
 // Score returns the heuristic risk score for the tarball (0-100).
@@ -367,7 +370,7 @@ func analyzeFiles(files []fileEntry, hasReadme bool, hasBinary bool) Result {
 				fmt.Sprintf("File %s uses eval(atob(...)) — classic obfuscation pattern", filepath.Base(f.path)))
 		}
 		if reEnvExfil.MatchString(content) {
-			addFinding(ScoreEnvExfil, "env-exfil", shield.SeverityHigh,
+			addFinding(ScoreEnvExfil, "env-exfil", shield.SeverityMedium,
 				"Possible environment variable exfiltration",
 				fmt.Sprintf("File %s reads environment variables and makes network calls in proximity", filepath.Base(f.path)))
 		}

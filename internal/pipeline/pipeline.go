@@ -7,8 +7,8 @@ import (
 	"time"
 
 	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/analyzer"
 	claudeanalyzer "github.com/homes853/cipher-shield/internal/analyzer/claude"
+	"github.com/homes853/cipher-shield/internal/analyzer"
 	"github.com/homes853/cipher-shield/internal/db"
 )
 
@@ -45,12 +45,11 @@ type Pipeline struct {
 	claude    analyzer.Analyzer // tier 4 — optional, nil if no API key
 }
 
-// heuristicAnalyzer extends Analyzer with a Score method used to gate Claude.
+// heuristicAnalyzer is the pipeline-internal interface for the heuristic tier.
+// AnalyzeFull returns both findings and the aggregate risk score in a single
+// tarball extraction, avoiding the cost of decompressing the archive twice.
 type heuristicAnalyzer interface {
-	analyzer.Analyzer
-	// ScoreOnly returns a 0-100 risk score without producing findings.
-	// Called before Analyze to decide whether Claude should run.
-	ScoreOnly(ctx context.Context, pkg shield.PackageRef, tarball []byte) int
+	AnalyzeFull(ctx context.Context, pkg shield.PackageRef, tarball []byte) ([]shield.Finding, int, error)
 }
 
 // New creates a Pipeline. Pass nil for claude to disable Claude analysis.
@@ -129,16 +128,16 @@ func (p *Pipeline) Analyze(ctx context.Context, pkg shield.PackageRef, tarball [
 
 	// Tier 3: Heuristic scan (only if tarball provided)
 	if len(tarball) > 0 && p.heuristic != nil {
-		score := p.heuristic.ScoreOnly(ctx, pkg, tarball)
-		log.Printf("[pipeline] %s@%s heuristic score=%d", pkg.Name, pkg.Version, score)
-		if score >= p.cfg.ClaudeTriggerScore {
-			claudeNeeded = true
-		}
-		findings, err := p.heuristic.Analyze(ctx, pkg, tarball)
+		findings, score, err := p.heuristic.AnalyzeFull(ctx, pkg, tarball)
 		if err != nil {
 			log.Printf("[pipeline] heuristic error: %v", err)
+		} else {
+			log.Printf("[pipeline] %s@%s heuristic score=%d", pkg.Name, pkg.Version, score)
+			if score >= p.cfg.ClaudeTriggerScore {
+				claudeNeeded = true
+			}
+			allFindings = append(allFindings, findings...)
 		}
-		allFindings = append(allFindings, findings...)
 	}
 
 	// Tier 4: Claude Opus (only when needed and tarball is present)
