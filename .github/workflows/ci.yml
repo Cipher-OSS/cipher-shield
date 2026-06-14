@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  test-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,3 +23,70 @@ jobs:
 
       - name: Test
         run: CGO_ENABLED=1 go test ./...
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install mingw (CGO C compiler for SQLite)
+        run: choco install mingw --no-progress -y
+
+      - name: Build
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: go build -o cipher-shield.exe ./cmd/shield/
+
+      - name: Unit tests
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: go test ./...
+
+      - name: Smoke test — version
+        run: .\cipher-shield.exe version
+
+      - name: Smoke test — proxy start / stop
+        shell: pwsh
+        run: |
+          # Start proxy in background; it configures npm + pip then listens on 7070
+          $proc = Start-Process -FilePath ".\cipher-shield.exe" `
+            -ArgumentList "proxy","start" `
+            -PassThru -NoNewWindow
+          Start-Sleep -Seconds 4
+
+          # Verify proxy is listening
+          $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue
+          if (-not $conn.TcpTestSucceeded) {
+            Write-Error "Proxy did not bind to port 7070"
+            $proc | Stop-Process -Force
+            exit 1
+          }
+          Write-Host "Port 7070 open — proxy is running"
+
+          # Stop via cipher-shield proxy stop (exercises proc.Kill() path)
+          .\cipher-shield.exe proxy stop
+
+          # Confirm npm registry was restored
+          $registry = npm config get registry
+          if ($registry -like "*127.0.0.1:7070*") {
+            Write-Error "npm registry was not restored after proxy stop (got: $registry)"
+            exit 1
+          }
+          Write-Host "npm registry restored to: $registry"
+
+          # Confirm pip config was restored (file should be gone or point to pypi.org)
+          $pipConf = "$env:APPDATA\pip\pip.ini"
+          if (Test-Path $pipConf) {
+            $content = Get-Content $pipConf -Raw
+            if ($content -like "*127.0.0.1:7070*") {
+              Write-Error "pip config was not restored after proxy stop"
+              exit 1
+            }
+          }
+          Write-Host "pip config restored"
