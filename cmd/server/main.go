@@ -9,15 +9,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/homes853/cipher-shield/internal/analyzer"
-	"github.com/homes853/cipher-shield/internal/analyzer/badlist"
-	claudeanalyzer "github.com/homes853/cipher-shield/internal/analyzer/claude"
-	"github.com/homes853/cipher-shield/internal/analyzer/cve"
-	"github.com/homes853/cipher-shield/internal/analyzer/heuristic"
-	"github.com/homes853/cipher-shield/internal/api"
-	"github.com/homes853/cipher-shield/internal/db"
-	"github.com/homes853/cipher-shield/internal/pipeline"
-	"github.com/homes853/cipher-shield/internal/proxy"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/badlist"
+	claudeanalyzer "github.com/cipher-oss/cipher-shield/internal/analyzer/claude"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/cve"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/heuristic"
+	"github.com/cipher-oss/cipher-shield/internal/api"
+	"github.com/cipher-oss/cipher-shield/internal/db"
+	"github.com/cipher-oss/cipher-shield/internal/pipeline"
+	"github.com/cipher-oss/cipher-shield/internal/proxy"
 )
 
 // version is set at build time via -ldflags "-X main.version=<tag>".

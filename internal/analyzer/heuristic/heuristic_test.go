@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // buildTGZ creates a minimal .tgz with the given files (path → content).

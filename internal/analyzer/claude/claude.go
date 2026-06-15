@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	analyzer "github.com/homes853/cipher-shield/internal/analyzer"
-	shield "github.com/homes853/cipher-shield/internal"
+	analyzer "github.com/cipher-oss/cipher-shield/internal/analyzer"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 const (

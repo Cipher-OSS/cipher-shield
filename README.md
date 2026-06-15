@@ -53,7 +53,7 @@ This is the recommended path for engineering organizations. It takes about 10 mi
 **1. Deploy the team server**
 
 ```sh
-git clone https://github.com/homes853/cipher-shield
+git clone https://github.com/cipher-oss/cipher-shield
 cd cipher-shield
 
 # Generate secrets
@@ -103,7 +103,7 @@ That's it. All npm and pip installs are now screened. Scan results appear on the
 
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...   # optional — enables Claude analysis
-curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.sh | sh
 ```
 
 The installer:
@@ -115,7 +115,7 @@ The installer:
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "sk-ant-..."   # optional — enables Claude analysis
-irm https://raw.githubusercontent.com/homes853/cipher-shield/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.ps1 | iex
 ```
 
 The installer:
@@ -128,7 +128,7 @@ Restart your terminal after install for PATH changes to take effect.
 ### Build from source
 
 ```sh
-git clone https://github.com/homes853/cipher-shield
+git clone https://github.com/cipher-oss/cipher-shield
 cd cipher-shield
 go build ./cmd/shield     # CLI + local proxy daemon
 go build ./cmd/server     # team server (proxy + API + dashboard)
@@ -375,7 +375,7 @@ Add cipher-shield to your CI pipeline to catch malicious or vulnerable dependenc
 # GitHub Actions
 - name: Scan dependencies
   run: |
-    curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.sh | sh
     cipher-shield scan lockfile package-lock.json
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -416,13 +416,13 @@ internal/
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.sh | sh
 ```
 
 **Windows**
 
 ```powershell
-irm https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.ps1 | iex
 ```
 
 Removes the binary, stops and removes the daemon, and restores your original npm/pip registry configuration.

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // Mode controls enforcement behavior.

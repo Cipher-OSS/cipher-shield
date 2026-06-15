@@ -6,10 +6,10 @@ import (
 	"log"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	claudeanalyzer "github.com/homes853/cipher-shield/internal/analyzer/claude"
-	"github.com/homes853/cipher-shield/internal/analyzer"
-	"github.com/homes853/cipher-shield/internal/db"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	claudeanalyzer "github.com/cipher-oss/cipher-shield/internal/analyzer/claude"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer"
+	"github.com/cipher-oss/cipher-shield/internal/db"
 )
 
 // Config controls pipeline behavior.

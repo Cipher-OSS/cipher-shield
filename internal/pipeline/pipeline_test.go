@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/pipeline"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	"github.com/cipher-oss/cipher-shield/internal/pipeline"
 )
 
 // ── Test doubles ──────────────────────────────────────────────────────────────

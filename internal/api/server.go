@@ -13,11 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/db"
-	"github.com/homes853/cipher-shield/internal/lockfile"
-	"github.com/homes853/cipher-shield/internal/registry"
-	shieldweb "github.com/homes853/cipher-shield/web"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	"github.com/cipher-oss/cipher-shield/internal/db"
+	"github.com/cipher-oss/cipher-shield/internal/lockfile"
+	"github.com/cipher-oss/cipher-shield/internal/registry"
+	shieldweb "github.com/cipher-oss/cipher-shield/web"
 	"golang.org/x/crypto/bcrypt"
 )
 

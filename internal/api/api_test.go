@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/api"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	"github.com/cipher-oss/cipher-shield/internal/api"
 	"golang.org/x/crypto/bcrypt"
 )
 

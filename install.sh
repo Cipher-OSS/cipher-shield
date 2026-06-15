@@ -1,6 +1,6 @@
 #!/bin/sh
 # cipher-shield installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.sh | sh
 set -e
 
 VERSION="${CIPHER_SHIELD_VERSION:-latest}"
@@ -16,7 +16,7 @@ case "$ARCH" in
 esac
 
 # Base download URL — points to GitHub releases
-BASE_URL="https://github.com/homes853/cipher-shield/releases/latest/download"
+BASE_URL="https://github.com/cipher-oss/cipher-shield/releases/latest/download"
 
 install_macos_daemon() {
     PLIST="$HOME/Library/LaunchAgents/com.cipher-shield.proxy.plist"

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 type sqliteStore struct {

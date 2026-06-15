@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // Reporter ships scan results to a central cipher-shield server asynchronously.

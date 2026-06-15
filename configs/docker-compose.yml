@@ -17,7 +17,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: ghcr.io/homes853/cipher-shield:latest
+    image: ghcr.io/cipher-oss/cipher-shield:latest
     restart: unless-stopped
     ports:
       - "7070:7070"   # Registry proxy (point npm/pip here)

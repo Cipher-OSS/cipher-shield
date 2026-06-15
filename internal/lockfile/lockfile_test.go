@@ -3,8 +3,8 @@ package lockfile_test
 import (
 	"testing"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/lockfile"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	"github.com/cipher-oss/cipher-shield/internal/lockfile"
 )
 
 // findPkg returns true if name@version is present in refs.

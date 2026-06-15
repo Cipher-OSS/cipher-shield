@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	analyzer "github.com/homes853/cipher-shield/internal/analyzer"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	analyzer "github.com/cipher-oss/cipher-shield/internal/analyzer"
 )
 
 const osvURL = "https://api.osv.dev/v1/query"

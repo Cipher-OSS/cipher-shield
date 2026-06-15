@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // Score weights — sum determines whether Claude gets invoked.

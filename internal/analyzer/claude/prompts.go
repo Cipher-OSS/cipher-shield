@@ -3,7 +3,7 @@ package claude
 import (
 	"fmt"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // buildPrompt constructs the analysis prompt for Claude Opus.

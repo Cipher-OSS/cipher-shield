@@ -102,7 +102,7 @@ az postgres flexible-server firewall-rule create \
 az container create \
   --resource-group $RESOURCE_GROUP \
   --name $CONTAINER_GROUP \
-  --image ghcr.io/homes853/cipher-shield:latest \
+  --image ghcr.io/cipher-oss/cipher-shield:latest \
   --cpu 1 \
   --memory 1 \
   --restart-policy Always \

@@ -3,7 +3,7 @@ package analyzer
 import (
 	"context"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // Analyzer is implemented by each detection layer.

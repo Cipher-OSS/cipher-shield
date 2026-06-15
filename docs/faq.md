@@ -146,13 +146,13 @@ If the heuristic scored a package high but it looks clean on inspection, this is
 
 Tier 1 (known-bad list) and Tier 3 (heuristic) can block packages that have no CVE assigned yet. A typosquatter with no CVE will still be caught by Levenshtein distance matching against popular package names.
 
-If you believe a Tier 1 or Tier 3 block is wrong, please [open an issue](https://github.com/homes853/cipher-shield/issues) with the package name and version.
+If you believe a Tier 1 or Tier 3 block is wrong, please [open an issue](https://github.com/cipher-oss/cipher-shield/issues) with the package name and version.
 
 ---
 
 ## Docker
 
-cipher-shield's Docker image (`ghcr.io/homes853/cipher-shield`) is for running the **team server** — not the dev workstation proxy. The dev-side proxy (`cipher-shield proxy start`) runs as a native binary directly on each developer's machine and is not Dockerized.
+cipher-shield's Docker image (`ghcr.io/cipher-oss/cipher-shield`) is for running the **team server** — not the dev workstation proxy. The dev-side proxy (`cipher-shield proxy start`) runs as a native binary directly on each developer's machine and is not Dockerized.
 
 ### Running the team server in Docker
 
@@ -334,7 +334,7 @@ Claude is only invoked when the heuristic score is ≥ 30 or a high-CVSS CVE is 
 ### How do I completely remove cipher-shield?
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.sh | sh
 ```
 
 This removes the binary, the systemd/LaunchAgent daemon, and restores your original npm/pip configuration.
@@ -363,7 +363,7 @@ pip config unset global.index-url
 
 The `install.sh` one-liner is for macOS and Linux only. On Windows:
 
-1. Download `cipher-shield-windows-amd64.exe` from the [releases page](https://github.com/homes853/cipher-shield/releases/latest).
+1. Download `cipher-shield-windows-amd64.exe` from the [releases page](https://github.com/cipher-oss/cipher-shield/releases/latest).
 2. Rename it to `cipher-shield.exe` and add it to your `PATH`.
 3. Run from PowerShell: `cipher-shield proxy start`
 

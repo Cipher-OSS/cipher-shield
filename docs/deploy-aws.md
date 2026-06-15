@@ -167,7 +167,7 @@ docker run -d \
   -e SHIELD_PROXY_TOKEN="${PROXY_TOKEN}" \
   -e SHIELD_MODE=enforce \
   -e DATABASE_URL="postgres://shield:${DB_PASSWORD}@${DB_HOST}:5432/shield?sslmode=require" \
-  ghcr.io/homes853/cipher-shield:latest
+  ghcr.io/cipher-oss/cipher-shield:latest
 USERDATA
 
 # Launch instance

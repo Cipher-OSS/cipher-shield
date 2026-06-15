@@ -14,19 +14,19 @@ import (
 	"syscall"
 	"time"
 
-	shield "github.com/homes853/cipher-shield/internal"
-	"github.com/homes853/cipher-shield/internal/analyzer"
-	"github.com/homes853/cipher-shield/internal/analyzer/badlist"
-	"github.com/homes853/cipher-shield/internal/analyzer/claude"
-	"github.com/homes853/cipher-shield/internal/analyzer/cve"
-	"github.com/homes853/cipher-shield/internal/analyzer/heuristic"
-	"github.com/homes853/cipher-shield/internal/db"
-	"github.com/homes853/cipher-shield/internal/lockfile"
-	"github.com/homes853/cipher-shield/internal/pipeline"
-	"github.com/homes853/cipher-shield/internal/proxy"
-	"github.com/homes853/cipher-shield/internal/proxyctl"
-	"github.com/homes853/cipher-shield/internal/registry"
-	"github.com/homes853/cipher-shield/internal/reporter"
+	shield "github.com/cipher-oss/cipher-shield/internal"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/badlist"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/claude"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/cve"
+	"github.com/cipher-oss/cipher-shield/internal/analyzer/heuristic"
+	"github.com/cipher-oss/cipher-shield/internal/db"
+	"github.com/cipher-oss/cipher-shield/internal/lockfile"
+	"github.com/cipher-oss/cipher-shield/internal/pipeline"
+	"github.com/cipher-oss/cipher-shield/internal/proxy"
+	"github.com/cipher-oss/cipher-shield/internal/proxyctl"
+	"github.com/cipher-oss/cipher-shield/internal/registry"
+	"github.com/cipher-oss/cipher-shield/internal/reporter"
 )
 
 // version is set at build time via -ldflags "-X main.version=<tag>".
@@ -458,7 +458,7 @@ func proxyStop() {
 	fmt.Println("✓ cipher-shield proxy stopped")
 }
 
-const knownBadURL = "https://raw.githubusercontent.com/homes853/cipher-shield/master/internal/analyzer/badlist/data/known_bad.json"
+const knownBadURL = "https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/internal/analyzer/badlist/data/known_bad.json"
 
 func runUpdate() {
 	dest := envOr("SHIELD_DB_PATH", defaultDBPath())

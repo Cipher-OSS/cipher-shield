@@ -117,7 +117,7 @@ gcloud secrets add-iam-policy-binding cipher-db-password \
 
 ```bash
 gcloud run deploy cipher-shield \
-  --image=ghcr.io/homes853/cipher-shield:latest \
+  --image=ghcr.io/cipher-oss/cipher-shield:latest \
   --region=$REGION \
   --platform=managed \
   --port=8080 \
@@ -190,7 +190,7 @@ gcloud compute ssh cipher-proxy -- \
     -e SHIELD_PROXY_TOKEN=$PROXY_TOKEN \
     -e SHIELD_MODE=enforce \
     -e DATABASE_URL=postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require \
-    ghcr.io/homes853/cipher-shield:latest"
+    ghcr.io/cipher-oss/cipher-shield:latest"
 ```
 
 **Option B — use Cloud Run for API/dashboard only, run proxy locally on each dev machine** (connects to Cloud Run to report results). This is the lowest-cost option.

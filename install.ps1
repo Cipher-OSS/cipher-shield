@@ -1,9 +1,9 @@
 # cipher-shield Windows installer
-# Usage: irm https://raw.githubusercontent.com/homes853/cipher-shield/master/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.ps1 | iex
 #
 # To include your Anthropic API key:
 #   $env:ANTHROPIC_API_KEY = "sk-ant-..."
-#   irm https://raw.githubusercontent.com/homes853/cipher-shield/master/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
@@ -16,7 +16,7 @@ if (-not [Environment]::Is64BitOperatingSystem) {
     exit 1
 }
 
-$BaseUrl     = "https://github.com/homes853/cipher-shield/releases/latest/download"
+$BaseUrl     = "https://github.com/cipher-oss/cipher-shield/releases/latest/download"
 $DownloadUrl = "$BaseUrl/cipher-shield-windows-amd64.exe"
 
 Write-Host "-> Installing cipher-shield (windows/amd64)..."

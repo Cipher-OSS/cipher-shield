@@ -1,5 +1,5 @@
 # cipher-shield Windows uninstaller
-# Usage: irm https://raw.githubusercontent.com/homes853/cipher-shield/master/uninstall.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.ps1 | iex
 
 $ErrorActionPreference = "SilentlyContinue"
 

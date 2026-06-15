@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // Parser extracts PackageRef entries from a lock file.

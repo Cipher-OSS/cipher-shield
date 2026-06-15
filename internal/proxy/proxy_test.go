@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"testing"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 // ── detectTarball ──────────────────────────────────────────────────────────

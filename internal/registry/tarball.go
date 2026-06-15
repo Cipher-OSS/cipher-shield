@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	shield "github.com/homes853/cipher-shield/internal"
+	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
 const MaxTarballBytes = 50 << 20 // 50 MB

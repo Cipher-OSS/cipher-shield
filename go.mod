@@ -1,4 +1,4 @@
-module github.com/homes853/cipher-shield
+module github.com/cipher-oss/cipher-shield
 
 go 1.22
 
