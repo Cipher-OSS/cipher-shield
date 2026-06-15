@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -48,13 +49,15 @@ type ResultReporter interface {
 
 // Config holds proxy startup configuration.
 type Config struct {
-	ListenAddr   string          // e.g. "127.0.0.1:7070"
+	ListenAddr   string           // e.g. "127.0.0.1:7070"
 	Mode         Mode
-	MaxBodyBytes int64           // max tarball to buffer (default 50MB)
-	Pipeline     Analyzer        // nil = pass everything through (audit)
-	NameChecker  NameChecker     // nil = no metadata-level Tier 1 check
+	MaxBodyBytes int64            // max tarball to buffer (default 50MB)
+	Pipeline     Analyzer         // nil = pass everything through (audit)
+	NameChecker  NameChecker      // nil = no metadata-level Tier 1 check
 	Exceptions   ExceptionChecker // nil = no server-side exception sync
-	Reporter     ResultReporter  // nil = local-only, no central reporting
+	Reporter     ResultReporter   // nil = local-only, no central reporting
+	TLSCertFile  string           // path to TLS cert; enables HTTPS on the proxy port when set with TLSKeyFile
+	TLSKeyFile   string           // path to TLS private key
 }
 
 // Proxy is the package registry interception proxy.
@@ -88,11 +91,15 @@ func New(cfg Config) *Proxy {
 
 // Start begins accepting connections. Blocks until error.
 func (p *Proxy) Start() error {
-	ln, err := net.Listen("tcp", p.cfg.ListenAddr)
+	ln, err := p.listen()
 	if err != nil {
-		return fmt.Errorf("proxy listen %s: %w", p.cfg.ListenAddr, err)
+		return err
 	}
-	log.Printf("[proxy] listening on %s (mode=%s)", p.cfg.ListenAddr, p.cfg.Mode)
+	scheme := "http"
+	if p.cfg.TLSCertFile != "" {
+		scheme = "https"
+	}
+	log.Printf("[proxy] listening on %s://%s (mode=%s)", scheme, p.cfg.ListenAddr, p.cfg.Mode)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -101,6 +108,28 @@ func (p *Proxy) Start() error {
 		}
 		go p.serve(conn)
 	}
+}
+
+func (p *Proxy) listen() (net.Listener, error) {
+	if p.cfg.TLSCertFile != "" && p.cfg.TLSKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(p.cfg.TLSCertFile, p.cfg.TLSKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("proxy TLS: %w", err)
+		}
+		ln, err := tls.Listen("tcp", p.cfg.ListenAddr, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("proxy listen %s: %w", p.cfg.ListenAddr, err)
+		}
+		return ln, nil
+	}
+	ln, err := net.Listen("tcp", p.cfg.ListenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("proxy listen %s: %w", p.cfg.ListenAddr, err)
+	}
+	return ln, nil
 }
 
 // serve handles one client connection.

@@ -397,11 +397,22 @@ func proxyStart(args []string) {
 	fmt.Println("  All npm install and pip install commands are now screened.")
 	fmt.Println("  Press Ctrl+C to stop and restore original settings.")
 
+	tlsCert := envOr("SHIELD_PROXY_TLS_CERT", "")
+	tlsKey := envOr("SHIELD_PROXY_TLS_KEY", "")
+
+	scheme := "http"
+	if tlsCert != "" && tlsKey != "" {
+		scheme = "https"
+	}
+	proxyURL = scheme + "://" + addr
+
 	proxyCfg := proxy.Config{
 		ListenAddr:  addr,
 		Mode:        proxy.Mode(envOr("SHIELD_MODE", "enforce")),
 		Pipeline:    pl,
 		NameChecker: pl,
+		TLSCertFile: tlsCert,
+		TLSKeyFile:  tlsKey,
 	}
 	if serverURL := envOr("SHIELD_SERVER_URL", ""); serverURL != "" {
 		token := envOr("SHIELD_PROXY_TOKEN", "")

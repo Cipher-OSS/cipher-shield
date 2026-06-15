@@ -24,18 +24,20 @@ import (
 var version = "dev"
 
 func main() {
-	proxyAddr    := flag.String("proxy-addr",     envOr("SHIELD_PROXY_ADDR",    ":7070"),         "Registry proxy listen address")
-	apiAddr      := flag.String("api-addr",       envOr("SHIELD_API_ADDR",      ":8080"),         "API + dashboard listen address")
-	dbURL        := flag.String("db",             envOr("DATABASE_URL",          ""),             "Postgres DSN (leave empty for SQLite)")
-	dbPath       := flag.String("db-path",        envOr("SHIELD_DB_PATH",        defaultDBPath()), "SQLite file path")
-	mode         := flag.String("mode",           envOr("SHIELD_MODE",           "enforce"),      "enforce | warn | audit")
-	anthropicKey := flag.String("anthropic-key",  envOr("ANTHROPIC_API_KEY",    ""),             "Anthropic API key (enables Claude analysis)")
-	jwtSecret    := flag.String("jwt-secret",     envOr("SHIELD_JWT_SECRET",    ""),             "JWT signing secret")
-	proxyToken   := flag.String("proxy-token",    envOr("SHIELD_PROXY_TOKEN",   ""),             "Pre-shared token for proxy agent reporting")
-	tlsCert      := flag.String("tls-cert",       envOr("SHIELD_TLS_CERT",      ""),             "Path to TLS certificate file (enables HTTPS on API port)")
-	tlsKey       := flag.String("tls-key",        envOr("SHIELD_TLS_KEY",       ""),             "Path to TLS private key file")
-	corsOrigin   := flag.String("cors-origin",    envOr("SHIELD_CORS_ORIGIN",   ""),             "Allowed CORS origin (e.g. https://shield.company.com); default: *")
-	historyDays  := flag.Int("history-days",      envOrInt("SHIELD_HISTORY_DAYS", 30),           "Days of scan history to retain (0 = keep forever)")
+	proxyAddr      := flag.String("proxy-addr",       envOr("SHIELD_PROXY_ADDR",       ":7070"),          "Registry proxy listen address")
+	apiAddr        := flag.String("api-addr",         envOr("SHIELD_API_ADDR",         ":8080"),          "API + dashboard listen address")
+	dbURL          := flag.String("db",               envOr("DATABASE_URL",             ""),              "Postgres DSN (leave empty for SQLite)")
+	dbPath         := flag.String("db-path",          envOr("SHIELD_DB_PATH",           defaultDBPath()),  "SQLite file path")
+	mode           := flag.String("mode",             envOr("SHIELD_MODE",              "enforce"),       "enforce | warn | audit")
+	anthropicKey   := flag.String("anthropic-key",    envOr("ANTHROPIC_API_KEY",       ""),              "Anthropic API key (enables Claude analysis)")
+	jwtSecret      := flag.String("jwt-secret",       envOr("SHIELD_JWT_SECRET",       ""),              "JWT signing secret")
+	proxyToken     := flag.String("proxy-token",      envOr("SHIELD_PROXY_TOKEN",      ""),              "Pre-shared token for proxy agent reporting")
+	tlsCert        := flag.String("tls-cert",         envOr("SHIELD_TLS_CERT",         ""),              "Path to TLS certificate file (enables HTTPS on API port)")
+	tlsKey         := flag.String("tls-key",          envOr("SHIELD_TLS_KEY",          ""),              "Path to TLS private key file")
+	proxyTLSCert   := flag.String("proxy-tls-cert",   envOr("SHIELD_PROXY_TLS_CERT",   ""),              "Path to TLS cert for the proxy port (enables HTTPS on port 7070)")
+	proxyTLSKey    := flag.String("proxy-tls-key",    envOr("SHIELD_PROXY_TLS_KEY",    ""),              "Path to TLS key for the proxy port")
+	corsOrigin     := flag.String("cors-origin",      envOr("SHIELD_CORS_ORIGIN",      ""),              "Allowed CORS origin (e.g. https://shield.company.com); default: *")
+	historyDays    := flag.Int("history-days",        envOrInt("SHIELD_HISTORY_DAYS", 30),               "Days of scan history to retain (0 = keep forever)")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -108,18 +110,24 @@ func main() {
 		Mode:        proxy.Mode(*mode),
 		Pipeline:    pl,
 		NameChecker: pl,
+		TLSCertFile: *proxyTLSCert,
+		TLSKeyFile:  *proxyTLSKey,
+	}
+	proxyScheme := "http"
+	if *proxyTLSCert != "" && *proxyTLSKey != "" {
+		proxyScheme = "https"
 	}
 	go func() {
 		if err := proxy.New(proxyCfg).Start(); err != nil {
 			log.Fatalf("[proxy] fatal: %v", err)
 		}
 	}()
-	log.Printf("[startup] proxy listening on %s", *proxyAddr)
+	log.Printf("[startup] proxy listening on %s://localhost%s", proxyScheme, *proxyAddr)
 
 	// ── API + dashboard ───────────────────────────────────────────────────────
 	log.Printf("[startup] API + dashboard on %s", *apiAddr)
-	log.Printf("[startup] npm:  npm config set registry http://localhost%s", *proxyAddr)
-	log.Printf("[startup] pip:  pip install --index-url http://localhost%s/simple/ <pkg>", *proxyAddr)
+	log.Printf("[startup] npm:  npm config set registry %s://localhost%s", proxyScheme, *proxyAddr)
+	log.Printf("[startup] pip:  pip install --index-url %s://localhost%s/simple/ <pkg>", proxyScheme, *proxyAddr)
 
 	if len(*jwtSecret) == 0 {
 		log.Printf("[startup] WARNING: SHIELD_JWT_SECRET not set — API auth disabled (dev mode)")

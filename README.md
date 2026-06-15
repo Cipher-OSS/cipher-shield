@@ -305,8 +305,10 @@ All guides cover: database setup, container deployment, first-user bootstrap, de
 | `SHIELD_JWT_SECRET` | — | Secret for signing dashboard JWTs. Required for dashboard auth. Generate with `openssl rand -hex 32`. |
 | `SHIELD_PROXY_TOKEN` | — | Pre-shared token that authenticates dev proxies to the central server. Generate with `openssl rand -hex 32`. |
 | `SHIELD_SERVER_URL` | — | URL of the central server. When set, the local proxy ships scan results to the server and syncs exceptions from it. |
-| `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set alongside `SHIELD_TLS_KEY`, enables HTTPS on the API port. |
+| `SHIELD_TLS_CERT` | — | Path to TLS certificate file. When set alongside `SHIELD_TLS_KEY`, enables HTTPS on the API/dashboard port. |
 | `SHIELD_TLS_KEY` | — | Path to TLS private key file. |
+| `SHIELD_PROXY_TLS_CERT` | — | Path to TLS certificate file for the registry proxy port (7070). When set alongside `SHIELD_PROXY_TLS_KEY`, the proxy speaks HTTPS instead of HTTP. Required for Model A deployments where developer machines connect over a network. |
+| `SHIELD_PROXY_TLS_KEY` | — | Path to TLS private key file for the registry proxy port. |
 | `SHIELD_CORS_ORIGIN` | same-origin | Allowed CORS origin for the API. Set to a specific origin (e.g. `https://shield.company.com`) to enable cross-origin requests. |
 | `SHIELD_DB_PATH` | `~/.cipher-shield/shield.db` | SQLite database path. Used when `DATABASE_URL` is not set. |
 | `DATABASE_URL` | — | Postgres DSN (e.g. `postgres://user:pass@host:5432/shield`). When set, uses Postgres instead of SQLite. |
