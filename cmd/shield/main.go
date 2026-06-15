@@ -673,5 +673,7 @@ func (n *noopStore) GetUserByID(_ string) (*shield.User, error)               { 
 func (n *noopStore) UpdatePassword(_, _ string) error                         { return nil }
 func (n *noopStore) CountUsers() (int, error)                                 { return 0, nil }
 func (n *noopStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
+func (n *noopStore) ListViolations(_ int) ([]shield.ViolationRow, error)      { return nil, nil }
+func (n *noopStore) DismissResult(_, _, _ string) error                       { return nil }
 func (n *noopStore) Migrate() error                                           { return nil }
 func (n *noopStore) Close() error                                             { return nil }
