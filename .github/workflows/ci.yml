@@ -54,84 +54,43 @@ jobs:
       - name: Smoke test — version
         run: .\cipher-shield.exe version
 
-      - name: Smoke test — proxy start / stop
+      - name: Smoke test — proxy (start, intercept, stop, config restore)
         shell: pwsh
         run: |
-          # Start proxy in background; it configures npm + pip then listens on 7070
-          $proc = Start-Process -FilePath ".\cipher-shield.exe" `
-            -ArgumentList "proxy","start" `
-            -PassThru -NoNewWindow
-          Start-Sleep -Seconds 4
-
-          # Verify proxy is listening
-          $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue
-          if (-not $conn.TcpTestSucceeded) {
-            Write-Error "Proxy did not bind to port 7070"
-            $proc | Stop-Process -Force
-            exit 1
-          }
-          Write-Host "Port 7070 open — proxy is running"
-
-          # Stop via cipher-shield proxy stop (exercises proc.Kill() path)
-          .\cipher-shield.exe proxy stop
-
-          # Confirm npm registry was restored
-          $registry = npm config get registry
-          if ($registry -like "*127.0.0.1:7070*") {
-            Write-Error "npm registry was not restored after proxy stop (got: $registry)"
-            exit 1
-          }
-          Write-Host "npm registry restored to: $registry"
-
-          # Confirm pip config was restored (file should be gone or point to pypi.org)
-          $pipConf = "$env:APPDATA\pip\pip.ini"
-          if (Test-Path $pipConf) {
-            $content = Get-Content $pipConf -Raw
-            if ($content -like "*127.0.0.1:7070*") {
-              Write-Error "pip config was not restored after proxy stop"
-              exit 1
-            }
-          }
-          Write-Host "pip config restored"
-
-      - name: Smoke test — package intercept (allow clean, block malicious)
-        shell: pwsh
-        run: |
-          # Restart proxy for package install tests
-          $proc = Start-Process -FilePath ".\cipher-shield.exe" `
-            -ArgumentList "proxy","start" `
-            -PassThru -NoNewWindow
+          # Start proxy — configures npm + pip and binds to 127.0.0.1:7070
+          Start-Process -FilePath ".\cipher-shield.exe" -ArgumentList "proxy","start" -NoNewWindow
           Start-Sleep -Seconds 4
 
           $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue
           if (-not $conn.TcpTestSucceeded) {
-            Write-Error "Proxy did not start for package intercept test"
-            exit 1
+            Write-Error "Proxy did not bind to port 7070"; exit 1
           }
+          Write-Host "OK: proxy listening on 7070"
 
-          # --- Allow path: lodash is a clean package and should install ---
-          Write-Host "Testing allow path: npm install lodash..."
+          # Allow path: lodash is clean and must install successfully
           npm install --prefer-online lodash
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "lodash install failed — proxy may have incorrectly blocked a clean package"
-            .\cipher-shield.exe proxy stop
-            exit 1
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path "node_modules\lodash")) {
+            Write-Error "lodash install failed — proxy incorrectly blocked a clean package"; exit 1
           }
-          if (-not (Test-Path "node_modules\lodash")) {
-            Write-Error "node_modules\lodash not found after install"
-            .\cipher-shield.exe proxy stop
-            exit 1
-          }
-          Write-Host "lodash installed successfully (allow path OK)"
+          Write-Host "OK: lodash passed through"
 
-          # --- Block path: colourama is in the known-bad list and must be blocked ---
-          Write-Host "Testing block path: npm install colourama..."
+          # Block path: colourama is in the known-bad list and must be blocked
           npm install colourama 2>&1 | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            Write-Error "colourama installed successfully — proxy failed to block a known-bad package"
-            .\cipher-shield.exe proxy stop
-            exit 1
+            Write-Error "colourama was not blocked — known-bad package slipped through"; exit 1
           }
-          Write-Host "colourama correctly blocked (block path OK)"
+          Write-Host "OK: colourama blocked"
 
+          # Stop proxy and verify npm + pip configs are restored
           .\cipher-shield.exe proxy stop
+
+          if ((npm config get registry) -like "*127.0.0.1:7070*") {
+            Write-Error "npm registry not restored after proxy stop"; exit 1
+          }
+          Write-Host "OK: npm registry restored"
+
+          $pipConf = "$env:APPDATA\pip\pip.ini"
+          if ((Test-Path $pipConf) -and (Get-Content $pipConf -Raw) -like "*127.0.0.1:7070*") {
+            Write-Error "pip config not restored after proxy stop"; exit 1
+          }
+          Write-Host "OK: pip config restored"
