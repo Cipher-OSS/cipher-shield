@@ -58,12 +58,21 @@ jobs:
         shell: pwsh
         run: |
           # Start proxy — configures npm + pip and binds to 127.0.0.1:7070
-          Start-Process -FilePath ".\cipher-shield.exe" -ArgumentList "proxy","start" -NoNewWindow
-          Start-Sleep -Seconds 4
+          $proc = Start-Process -FilePath ".\cipher-shield.exe" -ArgumentList "proxy","start" -PassThru -NoNewWindow
 
-          $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue
-          if (-not $conn.TcpTestSucceeded) {
-            Write-Error "Proxy did not bind to port 7070"; exit 1
+          # Poll until the proxy binds (pipeline init can take 30+ seconds on CI)
+          $deadline = [DateTime]::Now.AddSeconds(90)
+          $ready = $false
+          while ([DateTime]::Now -lt $deadline) {
+            if ($proc.HasExited) {
+              Write-Error "Proxy process exited early (code $($proc.ExitCode))"; exit 1
+            }
+            $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue -InformationLevel Quiet
+            if ($conn) { $ready = $true; break }
+            Start-Sleep -Seconds 3
+          }
+          if (-not $ready) {
+            Write-Error "Proxy did not bind to port 7070 within 90 seconds"; exit 1
           }
           Write-Host "OK: proxy listening on 7070"
 
