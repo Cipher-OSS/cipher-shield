@@ -93,3 +93,45 @@ jobs:
             }
           }
           Write-Host "pip config restored"
+
+      - name: Smoke test — package intercept (allow clean, block malicious)
+        shell: pwsh
+        run: |
+          # Restart proxy for package install tests
+          $proc = Start-Process -FilePath ".\cipher-shield.exe" `
+            -ArgumentList "proxy","start" `
+            -PassThru -NoNewWindow
+          Start-Sleep -Seconds 4
+
+          $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue
+          if (-not $conn.TcpTestSucceeded) {
+            Write-Error "Proxy did not start for package intercept test"
+            exit 1
+          }
+
+          # --- Allow path: lodash is a clean package and should install ---
+          Write-Host "Testing allow path: npm install lodash..."
+          npm install --prefer-online lodash
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "lodash install failed — proxy may have incorrectly blocked a clean package"
+            .\cipher-shield.exe proxy stop
+            exit 1
+          }
+          if (-not (Test-Path "node_modules\lodash")) {
+            Write-Error "node_modules\lodash not found after install"
+            .\cipher-shield.exe proxy stop
+            exit 1
+          }
+          Write-Host "lodash installed successfully (allow path OK)"
+
+          # --- Block path: colourama is in the known-bad list and must be blocked ---
+          Write-Host "Testing block path: npm install colourama..."
+          npm install colourama 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "colourama installed successfully — proxy failed to block a known-bad package"
+            .\cipher-shield.exe proxy stop
+            exit 1
+          }
+          Write-Host "colourama correctly blocked (block path OK)"
+
+          .\cipher-shield.exe proxy stop
