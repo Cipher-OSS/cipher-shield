@@ -715,6 +715,12 @@
         </svg>
         Lockfile Scan
       </button>
+      <button class="nav-pill" onclick="showView('violations')" id="nav-violations">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Violations
+      </button>
       <button class="nav-pill" onclick="showView('exceptions')" id="nav-exceptions">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
@@ -961,6 +967,33 @@
         </div>
       </div>
 
+      <!-- Violations View -->
+      <div class="view" id="view-violations">
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Violations</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadViolations()">Refresh</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Verdict</th>
+                <th>Findings</th>
+                <th>Scanned</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="violations-tbody">
+              <tr class="empty-row"><td colspan="8">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Team / Users View (admin only) -->
       <div class="view" id="view-users">
         <div class="table-wrap" style="margin-bottom:24px">
@@ -1041,6 +1074,22 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="addUser()" id="user-submit-btn">Add Member</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dismiss Modal -->
+<div class="modal-overlay" id="dismiss-modal">
+  <div class="modal">
+    <h3>Dismiss Violation</h3>
+    <div class="field">
+      <label>Note <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></label>
+      <textarea id="dismiss-note" rows="3" placeholder="e.g. Internal package, not malicious" style="resize:vertical"></textarea>
+    </div>
+    <div class="error-msg" id="dismiss-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('dismiss-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDismiss()" id="dismiss-submit-btn">Dismiss</button>
     </div>
   </div>
 </div>
@@ -1253,6 +1302,7 @@ const VIEW_TITLES = {
   dashboard:  'Dashboard',
   scan:       'Scan Package',
   lockfile:   'Lockfile Scan',
+  violations: 'Violations',
   exceptions: 'Exceptions',
   badlist:    'Known Bad Packages',
   users:      'Team',
@@ -1271,9 +1321,116 @@ function showView(name) {
   if (titleEl) titleEl.textContent = VIEW_TITLES[name] || name;
 
   if (name === 'dashboard')  loadHistory();
+  if (name === 'violations') loadViolations();
   if (name === 'exceptions') loadExceptions();
   if (name === 'badlist')    loadBadlist();
   if (name === 'users')      loadUsers();
+}
+
+// ── Violations ────────────────────────────────────────────────────────────────
+
+let dismissTargetID = null;
+
+async function loadViolations() {
+  const tbody = document.getElementById('violations-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Loading…</td></tr>';
+  try {
+    const res = await apiFetch('/api/v1/violations?limit=200');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const items = data.violations || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No violations yet — all scanned packages are clean.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((v, idx) => {
+      const pkg   = v.package ? v.package.name      : '—';
+      const eco   = v.package ? v.package.ecosystem  : '—';
+      const ver   = v.package ? v.package.version    : '—';
+      const verb  = (v.verdict || 'unknown').toLowerCase();
+      const nf    = (v.findings || []).length;
+      const ts    = fmtDate(v.scanned_at);
+      const rowId = `viol-findings-${idx}`;
+
+      let statusCell;
+      if (v.dismissed && v.dismissal) {
+        const d = v.dismissal;
+        const byLine = d.dismissed_by ? `<span style="color:var(--muted);font-size:11px">by ${esc(d.dismissed_by)}</span>` : '';
+        const note   = d.note ? `<span style="color:var(--muted);font-size:11px;display:block;margin-top:2px">"${esc(d.note)}"</span>` : '';
+        statusCell = `<span style="color:var(--green);font-size:12px;font-weight:600">Dismissed</span><br>${byLine}${note}`;
+      } else {
+        statusCell = `<span style="color:var(--amber);font-size:12px;font-weight:600">Open</span>`;
+      }
+
+      const dismissBtn = v.dismissed
+        ? ''
+        : `<button class="btn btn-secondary btn-sm" onclick="openDismiss('${esc(v.scan_id)}')">Dismiss</button>`;
+
+      const findingsHtml = (v.findings || []).map(f => {
+        const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+        const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      const detailRow = nf > 0 ? `
+        <tr class="lockfile-row-findings" id="${rowId}">
+          <td colspan="8"><div style="padding:4px 0">${findingsHtml}</div></td>
+        </tr>` : '';
+
+      const expandBtn = nf > 0
+        ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+        : '';
+
+      return `<tr class="${nf > 0 ? 'has-findings' : ''}" ${nf > 0 ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
+        <td class="mono">${esc(pkg)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td>${verdictBadge(verb)}</td>
+        <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+        <td style="color:var(--muted)">${ts}</td>
+        <td>${statusCell}</td>
+        <td>${expandBtn || ''} ${dismissBtn}</td>
+      </tr>${detailRow}`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8" style="color:var(--red)">Failed to load violations.</td></tr>';
+    }
+  }
+}
+
+function openDismiss(scanID) {
+  dismissTargetID = scanID;
+  document.getElementById('dismiss-note').value = '';
+  document.getElementById('dismiss-error').style.display = 'none';
+  document.getElementById('dismiss-modal').classList.add('active');
+}
+
+async function submitDismiss() {
+  if (!dismissTargetID) return;
+  const note    = document.getElementById('dismiss-note').value.trim();
+  const errEl   = document.getElementById('dismiss-error');
+  const btn     = document.getElementById('dismiss-submit-btn');
+  errEl.style.display = 'none';
+  setLoading('dismiss-submit-btn', true, 'Dismiss');
+  try {
+    const res = await apiFetch(`/api/v1/violations/${encodeURIComponent(dismissTargetID)}/dismiss`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error || `HTTP ${res.status}`); }
+    closeModal('dismiss-modal');
+    loadViolations();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    setLoading('dismiss-submit-btn', false, 'Dismiss');
+  }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

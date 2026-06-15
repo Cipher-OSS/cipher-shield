@@ -24,6 +24,10 @@ type Store interface {
 	ListHistory(limit int) ([]shield.ScanResult, error)
 	PruneHistory(retentionDays int) (int64, error)
 
+	// Violations + triage
+	ListViolations(limit int) ([]shield.ViolationRow, error)
+	DismissResult(scanID, dismissedBy, note string) error
+
 	// Users
 	CreateUser(email, passwordHash, role string) (*shield.User, error)
 	GetUserByEmail(email string) (*shield.User, error)

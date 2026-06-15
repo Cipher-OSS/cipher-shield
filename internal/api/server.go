@@ -105,6 +105,10 @@ func (s *Server) routes() {
 	// History
 	s.router.HandleFunc("/api/v1/history", s.requireUser(s.handleHistory)).Methods("GET", "OPTIONS")
 
+	// Violations + triage
+	s.router.HandleFunc("/api/v1/violations", s.requireUser(s.handleListViolations)).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/violations/{id}/dismiss", s.requireUser(s.handleDismiss)).Methods("POST", "OPTIONS")
+
 	// Finding explanation (Claude-powered, optional)
 	s.router.HandleFunc("/api/v1/findings/expand", s.requireUser(s.handleExpandFinding)).Methods("POST", "OPTIONS")
 
@@ -439,6 +443,46 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		"role":       user.Role,
 		"created_at": user.CreatedAt,
 	})
+}
+
+// GET /api/v1/violations?limit=200
+func (s *Server) handleListViolations(w http.ResponseWriter, r *http.Request) {
+	limit := 200
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	violations, err := s.store.ListViolations(limit)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if violations == nil {
+		violations = []shield.ViolationRow{}
+	}
+	jsonOK(w, map[string]interface{}{"violations": violations, "count": len(violations)})
+}
+
+// POST /api/v1/violations/{id}/dismiss
+func (s *Server) handleDismiss(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["id"]
+	var req struct {
+		Note string `json:"note"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	claims := claimsFromCtx(r)
+	dismissedBy := ""
+	if claims != nil {
+		dismissedBy = claims.Email
+	}
+
+	if err := s.store.DismissResult(scanID, dismissedBy, req.Note); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "dismissed"})
 }
 
 func jsonOK(w http.ResponseWriter, data interface{}) {

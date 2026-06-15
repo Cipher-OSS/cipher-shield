@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS users (
     role          TEXT NOT NULL DEFAULT 'analyst',
     created_at    TIMESTAMPTZ NOT NULL
 );`,
+
+	// v2: dismissals table for triage attribution
+	`CREATE TABLE IF NOT EXISTS dismissals (
+    scan_id      TEXT PRIMARY KEY,
+    dismissed_by TEXT NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    dismissed_at TIMESTAMPTZ NOT NULL
+);`,
 }
 
 func (s *postgresStore) Migrate() error {
@@ -319,6 +327,66 @@ func (s *postgresStore) PruneHistory(retentionDays int) (int64, error) {
 		return 0, fmt.Errorf("PruneHistory: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+func (s *postgresStore) DismissResult(scanID, dismissedBy, note string) error {
+	_, err := s.db.Exec(`
+INSERT INTO dismissals (scan_id, dismissed_by, note, dismissed_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (scan_id) DO UPDATE SET
+    dismissed_by = EXCLUDED.dismissed_by,
+    note         = EXCLUDED.note,
+    dismissed_at = EXCLUDED.dismissed_at
+`, scanID, dismissedBy, note, time.Now().UTC())
+	return err
+}
+
+func (s *postgresStore) ListViolations(limit int) ([]shield.ViolationRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`
+SELECT h.result_json,
+       d.scan_id      AS dis_scan_id,
+       d.dismissed_by,
+       d.note,
+       d.dismissed_at
+FROM scan_history h
+LEFT JOIN dismissals d ON d.scan_id = h.scan_id
+WHERE h.verdict IN ('block', 'warn')
+ORDER BY h.scanned_at DESC
+LIMIT $1
+`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ListViolations query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []shield.ViolationRow
+	for rows.Next() {
+		var rawJSON string
+		var disScanID, dismissedBy, note sql.NullString
+		var dismissedAt sql.NullTime
+		if err := rows.Scan(&rawJSON, &disScanID, &dismissedBy, &note, &dismissedAt); err != nil {
+			return nil, fmt.Errorf("ListViolations scan: %w", err)
+		}
+		var sr shield.ScanResult
+		if err := json.Unmarshal([]byte(rawJSON), &sr); err != nil {
+			return nil, fmt.Errorf("ListViolations unmarshal: %w", err)
+		}
+		vr := shield.ViolationRow{ScanResult: sr}
+		if disScanID.Valid {
+			vr.Dismissed = true
+			vr.Dismissal = &shield.Dismissal{
+				ScanID:      disScanID.String,
+				DismissedBy: dismissedBy.String,
+				Note:        note.String,
+				DismissedAt: dismissedAt.Time,
+			}
+		}
+		out = append(out, vr)
+	}
+	return out, rows.Err()
 }
 
 func (s *postgresStore) ListHistory(limit int) ([]shield.ScanResult, error) {

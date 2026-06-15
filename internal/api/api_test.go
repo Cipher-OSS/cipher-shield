@@ -116,9 +116,11 @@ func (s *testStore) ListHistory(limit int) ([]shield.ScanResult, error) {
 	return s.history[:n], nil
 }
 
-func (s *testStore) PruneHistory(_ int) (int64, error) { return 0, nil }
-func (s *testStore) Migrate() error                    { return nil }
-func (s *testStore) Close() error                      { return nil }
+func (s *testStore) PruneHistory(_ int) (int64, error)                        { return 0, nil }
+func (s *testStore) ListViolations(_ int) ([]shield.ViolationRow, error)      { return nil, nil }
+func (s *testStore) DismissResult(_, _, _ string) error                       { return nil }
+func (s *testStore) Migrate() error                                            { return nil }
+func (s *testStore) Close() error                                              { return nil }
 
 type stubScanner struct {
 	result *shield.ScanResult

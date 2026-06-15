@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS users (
     role          TEXT NOT NULL DEFAULT 'analyst',
     created_at    DATETIME NOT NULL
 );`,
+
+	// v2: dismissals table for triage attribution
+	`CREATE TABLE IF NOT EXISTS dismissals (
+    scan_id      TEXT PRIMARY KEY,
+    dismissed_by TEXT NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    dismissed_at DATETIME NOT NULL
+);`,
 }
 
 func (s *sqliteStore) Migrate() error {
@@ -153,6 +161,67 @@ func (s *sqliteStore) ListUsers() ([]shield.User, error) {
 	}
 	defer rows.Close()
 	return scanUserRows(rows)
+}
+
+func (s *sqliteStore) DismissResult(scanID, dismissedBy, note string) error {
+	_, err := s.db.Exec(`
+INSERT INTO dismissals (scan_id, dismissed_by, note, dismissed_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(scan_id) DO UPDATE SET
+    dismissed_by = excluded.dismissed_by,
+    note         = excluded.note,
+    dismissed_at = excluded.dismissed_at
+`, scanID, dismissedBy, note, time.Now().UTC())
+	return err
+}
+
+func (s *sqliteStore) ListViolations(limit int) ([]shield.ViolationRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`
+SELECT h.result_json,
+       d.scan_id      AS dis_scan_id,
+       d.dismissed_by,
+       d.note,
+       d.dismissed_at
+FROM scan_history h
+LEFT JOIN dismissals d ON d.scan_id = h.scan_id
+WHERE h.verdict IN ('block', 'warn')
+ORDER BY h.scanned_at DESC
+LIMIT ?
+`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ListViolations query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []shield.ViolationRow
+	for rows.Next() {
+		var rawJSON string
+		var disScanID sql.NullString
+		var dismissedBy, note sql.NullString
+		var dismissedAt sql.NullTime
+		if err := rows.Scan(&rawJSON, &disScanID, &dismissedBy, &note, &dismissedAt); err != nil {
+			return nil, fmt.Errorf("ListViolations scan: %w", err)
+		}
+		var sr shield.ScanResult
+		if err := json.Unmarshal([]byte(rawJSON), &sr); err != nil {
+			return nil, fmt.Errorf("ListViolations unmarshal: %w", err)
+		}
+		vr := shield.ViolationRow{ScanResult: sr}
+		if disScanID.Valid {
+			vr.Dismissed = true
+			vr.Dismissal = &shield.Dismissal{
+				ScanID:      disScanID.String,
+				DismissedBy: dismissedBy.String,
+				Note:        note.String,
+				DismissedAt: dismissedAt.Time,
+			}
+		}
+		out = append(out, vr)
+	}
+	return out, rows.Err()
 }
 
 func (s *sqliteStore) Close() error {

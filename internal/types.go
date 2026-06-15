@@ -63,6 +63,19 @@ type ScanResult struct {
 	DurationMs  int64      `json:"duration_ms"`
 }
 
+type Dismissal struct {
+	ScanID      string    `json:"scan_id"`
+	DismissedBy string    `json:"dismissed_by"`
+	Note        string    `json:"note,omitempty"`
+	DismissedAt time.Time `json:"dismissed_at"`
+}
+
+type ViolationRow struct {
+	ScanResult
+	Dismissed   bool       `json:"dismissed"`
+	Dismissal   *Dismissal `json:"dismissal,omitempty"`
+}
+
 type Exception struct {
 	ExceptionID string     `json:"exception_id"`
 	Ecosystem   Ecosystem  `json:"ecosystem"`

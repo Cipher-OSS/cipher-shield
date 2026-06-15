@@ -70,6 +70,8 @@ func (m *memStore) UpdatePassword(_, _ string) error                         { r
 func (m *memStore) CountUsers() (int, error)                                 { return 0, nil }
 func (m *memStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
 func (m *memStore) PruneHistory(_ int) (int64, error)                        { return 0, nil }
+func (m *memStore) ListViolations(_ int) ([]shield.ViolationRow, error)      { return nil, nil }
+func (m *memStore) DismissResult(_, _, _ string) error                       { return nil }
 func (m *memStore) Migrate() error                                           { return nil }
 func (m *memStore) Close() error                                             { return nil }
 
