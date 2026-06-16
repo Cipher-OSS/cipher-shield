@@ -83,12 +83,13 @@ jobs:
           }
           Write-Host "OK: lodash passed through"
 
-          # Block path: colourama is in the known-bad list and must be blocked
-          npm install colourama 2>&1 | Out-Null
+          # Block path: colourama is a PyPI known-bad package (typosquat of colorama)
+          # Testing via pip because colourama does not exist on the npm registry
+          pip install colourama 2>&1 | Out-Null
           if ($LASTEXITCODE -eq 0) {
             Write-Error "colourama was not blocked — known-bad package slipped through"; exit 1
           }
-          Write-Host "OK: colourama blocked"
+          Write-Host "OK: colourama (pypi) blocked"
 
           # Stop proxy and verify npm + pip configs are restored
           .\cipher-shield.exe proxy stop
