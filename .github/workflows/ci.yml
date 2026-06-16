@@ -27,6 +27,33 @@ jobs:
       - name: Test
         run: CGO_ENABLED=1 go test ./...
 
+      - name: Smoke test — proxy block (start, block colourama, stop)
+        run: |
+          CGO_ENABLED=1 go build -o cipher-shield ./cmd/shield/
+          ./cipher-shield proxy start &
+          PROXY_PID=$!
+
+          # Poll until the proxy binds (up to 90s)
+          for i in $(seq 1 30); do
+            nc -z 127.0.0.1 7070 2>/dev/null && break
+            sleep 3
+          done
+          nc -z 127.0.0.1 7070 2>/dev/null || { echo "Proxy did not bind within 90s"; kill $PROXY_PID; exit 1; }
+          echo "OK: proxy listening on 7070"
+
+          # colourama is a known-bad PyPI package — proxy must return 403 at the simple API level.
+          # Using curl to check the exact HTTP status so the test can't pass due to a PyPI 404.
+          BLOCK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:7070/simple/colourama/")
+          if [ "$BLOCK_STATUS" != "403" ]; then
+            echo "colourama was not blocked — expected HTTP 403 from proxy, got $BLOCK_STATUS"
+            kill $PROXY_PID
+            exit 1
+          fi
+          echo "OK: colourama (pypi) blocked at simple API (HTTP $BLOCK_STATUS)"
+
+          ./cipher-shield proxy stop
+          echo "OK: proxy stopped"
+
   test-windows:
     runs-on: windows-latest
     steps:
@@ -83,13 +110,15 @@ jobs:
           }
           Write-Host "OK: lodash passed through"
 
-          # Block path: colourama is a PyPI known-bad package (typosquat of colorama)
-          # Testing via pip because colourama does not exist on the npm registry
-          pip install colourama 2>&1 | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Error "colourama was not blocked — known-bad package slipped through"; exit 1
+          # Block path: colourama is a known-bad PyPI package (typosquat of colorama).
+          # We check at the /simple/ API level so the test is independent of whether
+          # the package still exists on PyPI — the proxy must return 403 by name before
+          # any tarball download occurs.
+          $blockStatus = curl.exe -s -o NUL -w "%{http_code}" "http://127.0.0.1:7070/simple/colourama/"
+          if ($blockStatus -ne "403") {
+            Write-Error "colourama was not blocked — expected HTTP 403 from proxy, got $blockStatus"; exit 1
           }
-          Write-Host "OK: colourama (pypi) blocked"
+          Write-Host "OK: colourama (pypi) blocked at simple API (HTTP $blockStatus)"
 
           # Stop proxy and verify npm + pip configs are restored
           .\cipher-shield.exe proxy stop
