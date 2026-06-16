@@ -145,14 +145,29 @@ func IsRunning() bool {
 	return err == nil
 }
 
+// IsStale returns true when npm or pip is still configured to use the proxy
+// but the proxy process is no longer running. This happens after an unexpected
+// termination (crash, machine reboot, force-kill).
+func IsStale() bool {
+	if IsRunning() {
+		return false
+	}
+	_, npmErr := os.Stat(origNPMFile())
+	_, pipErr := os.Stat(origPIPFile())
+	return npmErr == nil || pipErr == nil
+}
+
 // Status returns a human-readable status string.
 func Status() string {
 	pid := ReadPID()
-	if pid == 0 {
-		return "stopped"
-	}
 	if IsRunning() {
 		return fmt.Sprintf("running (pid %d)", pid)
 	}
-	return "stopped (stale pid file)"
+	if IsStale() {
+		return "stopped (npm/pip still configured — run 'cipher-shield proxy restore' to fix)"
+	}
+	if pid != 0 {
+		return "stopped (stale pid file)"
+	}
+	return "stopped"
 }
