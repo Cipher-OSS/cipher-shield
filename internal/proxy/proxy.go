@@ -292,7 +292,7 @@ func writeError(conn net.Conn, code int, msg string) {
 var npmTarballRe = regexp.MustCompile(`^/(@[^/]+/[^/]+|[^@/][^/]*)/-/[^/]+-(\d[^/]*)\.tgz$`)
 
 // pypi sdist/wheel: /packages/.../*.tar.gz or /packages/.../*.whl
-var pypiTarballRe = regexp.MustCompile(`/packages/[^/]+/[^/]+/[^/]+/([^/-]+)-([^/-][^/]*)(?:-[^/]+)?\.(?:tar\.gz|whl)$`)
+var pypiTarballRe = regexp.MustCompile(`/packages/[^/]+/[^/]+/[^/]+/([^/-]+)-([^/-][^/-]*)(?:-[^/]+)?\.(?:tar\.gz|whl)$`)
 
 // detectTarball checks whether the request is fetching a package tarball.
 // Returns the PackageRef and true if it is, or zero value and false otherwise.

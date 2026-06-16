@@ -52,8 +52,13 @@ func TestDetectTarball_PyPI(t *testing.T) {
 			"requests", "2.31.0",
 		},
 		{
+			// wheel filename: version stops at the first hyphen (before py/abi/platform tags)
 			"/packages/12/34/56/numpy-1.24.0-cp311-cp311-manylinux.whl",
-			"numpy", "1.24.0-cp311-cp311-manylinux",
+			"numpy", "1.24.0",
+		},
+		{
+			"/packages/ab/cd/ef/requests-2.34.2-py3-none-any.whl",
+			"requests", "2.34.2",
 		},
 		{
 			"/packages/aa/bb/cc/Pillow-9.5.0.tar.gz",
