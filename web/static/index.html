@@ -852,9 +852,10 @@
           ondragover="handleDragOver(event)"
           ondragleave="handleDragLeave(event)"
           ondrop="handleDrop(event)">
-          <input type="file" id="lockfile-input" style="display:none"
+          <input type="file" id="lockfile-input"
             accept=".json,.lock,.txt"
-            onchange="handleFileSelect(event)">
+            onchange="handleFileSelect(event)"
+            style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
           <div class="drop-icon">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
@@ -1364,7 +1365,7 @@ async function loadViolations() {
 
       const dismissBtn = v.dismissed
         ? ''
-        : `<button class="btn btn-secondary btn-sm" onclick="openDismiss('${esc(v.scan_id)}')">Dismiss</button>`;
+        : `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDismiss('${esc(v.scan_id)}')">Dismiss</button>`;
 
       const findingsHtml = (v.findings || []).map(f => {
         const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
@@ -1406,7 +1407,7 @@ function openDismiss(scanID) {
   dismissTargetID = scanID;
   document.getElementById('dismiss-note').value = '';
   document.getElementById('dismiss-error').style.display = 'none';
-  document.getElementById('dismiss-modal').classList.add('active');
+  document.getElementById('dismiss-modal').classList.add('open');
 }
 
 async function submitDismiss() {
