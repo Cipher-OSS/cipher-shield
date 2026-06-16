@@ -326,7 +326,7 @@ func verdictStr(v shield.Verdict) string {
 
 func runProxy(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cipher-shield proxy start|stop|status")
+		fmt.Fprintln(os.Stderr, "Usage: cipher-shield proxy start|stop|status|restore")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -336,6 +336,8 @@ func runProxy(args []string) {
 		proxyStop()
 	case "status":
 		fmt.Println("proxy:", proxyctl.Status())
+	case "restore":
+		proxyRestore()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown proxy subcommand: %s\n", args[0])
 		os.Exit(1)
@@ -354,6 +356,17 @@ func proxyStart(args []string) {
 	if proxyctl.IsRunning() {
 		fmt.Printf("cipher-shield proxy is already running (%s)\n", proxyctl.Status())
 		os.Exit(0)
+	}
+
+	// Heal stale state before saving originals: if a previous run left npm/pip
+	// pointing at the proxy without cleaning up, restore them first so we don't
+	// accidentally save the proxy URL as the "original" to restore to later.
+	if proxyctl.IsStale() {
+		fmt.Println("→ Detected stale configuration from previous run — restoring npm/pip first...")
+		proxyctl.RestoreNPM()
+		proxyctl.RestorePIP()
+		proxyctl.RemovePID()
+		fmt.Println("✓ Restored")
 	}
 
 	// Build pipeline
@@ -456,6 +469,21 @@ func proxyStop() {
 	proxyctl.RestorePIP()
 	proxyctl.RemovePID()
 	fmt.Println("✓ cipher-shield proxy stopped")
+}
+
+func proxyRestore() {
+	if proxyctl.IsRunning() {
+		fmt.Println("Proxy is still running — use 'cipher-shield proxy stop' to stop it cleanly.")
+		os.Exit(1)
+	}
+	if !proxyctl.IsStale() {
+		fmt.Println("npm and pip are already using their original registries — nothing to restore.")
+		return
+	}
+	proxyctl.RestoreNPM()
+	proxyctl.RestorePIP()
+	proxyctl.RemovePID()
+	fmt.Println("✓ npm and pip config restored to original registries")
 }
 
 const knownBadURL = "https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/internal/analyzer/badlist/data/known_bad.json"
@@ -619,6 +647,7 @@ Usage:
   cipher-shield proxy start [--addr 127.0.0.1:7070]  Start proxy (configures npm + pip automatically)
   cipher-shield proxy stop                            Stop proxy (restores npm + pip config)
   cipher-shield proxy status                          Show proxy status
+  cipher-shield proxy restore                         Restore npm + pip if proxy stopped unexpectedly
   cipher-shield update                            Fetch latest known-bad list from GitHub
   cipher-shield version                           Print version
 
