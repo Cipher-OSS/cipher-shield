@@ -40,7 +40,7 @@ npm install axios          pip install requests
 
 **Tier 3 — Heuristic**: Extracts the tarball and scores the code for suspicious patterns: network calls in install scripts, base64+exec chains, env-var exfiltration, obfuscation, remote script execution. Score 0–100.
 
-**Tier 4 — Claude Opus**: Runs only when the heuristic score ≥ 30 or a high-CVSS CVE is found. Claude reads the actual install scripts and source code and returns a structured verdict with reasoning. This is the main differentiator — real code comprehension, not just signatures.
+**Tier 4 — Claude Opus** *(optional)*: Runs only when the heuristic score ≥ 30 or a high-CVSS CVE is found. Claude reads the actual install scripts and source code and returns a structured verdict with reasoning — real code comprehension, not just signatures. Requires `ANTHROPIC_API_KEY`. **Without it, Tiers 1–3 still run and catch the vast majority of threats** (known-bad packages, published CVEs, and heuristic red flags); Tier 4 adds a deeper second opinion on ambiguous cases.
 
 Results are cached (4 h for clean packages, 1 h for warn/block) so each unique package version is only analyzed once across your team.
 
