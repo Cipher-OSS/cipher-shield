@@ -54,6 +54,14 @@ jobs:
           ./cipher-shield proxy stop
           echo "OK: proxy stopped"
 
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t cipher-shield:ci .
+
   test-windows:
     runs-on: windows-latest
     steps:
