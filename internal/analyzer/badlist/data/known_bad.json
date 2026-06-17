@@ -1,0 +1,38 @@
+{
+  "npm": [
+    {"name": "event-stream", "version": "3.3.6", "reason": "2018 supply chain attack — exfiltrated bitcoin wallet keys", "severity": "critical"},
+    {"name": "flatmap-stream", "version": "0.1.1", "reason": "Malicious dependency of compromised event-stream@3.3.6", "severity": "critical"},
+    {"name": "eslint-scope", "version": "3.7.2", "reason": "2018 npm compromise — posted credentials to attacker server", "severity": "critical"},
+    {"name": "getcookies", "version": "1.0.0", "reason": "Backdoor in npm — executed remote code via HTTP headers", "severity": "critical"},
+    {"name": "crossenv", "version": "*", "reason": "Typosquatting cross-env — contained malware", "severity": "high"},
+    {"name": "cross-env.js", "version": "*", "reason": "Typosquatting cross-env", "severity": "high"},
+    {"name": "d3.js", "version": "*", "reason": "Typosquatting d3 — malicious package", "severity": "high"},
+    {"name": "jquery.js", "version": "*", "reason": "Typosquatting jquery", "severity": "high"},
+    {"name": "node-opencv", "version": "6.1.0", "reason": "Malicious postinstall script", "severity": "high"},
+    {"name": "colors", "version": "1.4.1", "reason": "Protest sabotage by maintainer — infinite loop DOS", "severity": "medium"},
+    {"name": "faker", "version": "6.6.6", "reason": "Protest sabotage by maintainer", "severity": "medium"},
+    {"name": "ctx", "version": "*", "reason": "Data exfiltration via environment variable harvesting", "severity": "critical"},
+    {"name": "marionette-collective", "version": "*", "reason": "Dependency confusion attack target", "severity": "high"},
+    {"name": "is-promise", "version": "2.2.0", "reason": "Broken release causing widespread breakage (illustrative)", "severity": "low"}
+  ],
+  "pypi": [
+    {"name": "colourama", "version": "*", "reason": "Typosquatting colorama — exfiltrated Bitcoin wallet", "severity": "critical"},
+    {"name": "python-sqlite", "version": "*", "reason": "Typosquatting sqlite3 — malicious", "severity": "high"},
+    {"name": "acqusition", "version": "*", "reason": "Typosquatting acquisition — malware", "severity": "high"},
+    {"name": "apidev-coop", "version": "*", "reason": "Malicious package", "severity": "high"},
+    {"name": "babelstone", "version": "*", "reason": "Malicious package", "severity": "high"},
+    {"name": "crypt", "version": "1.4.1", "reason": "Trojan — executed remote code", "severity": "critical"},
+    {"name": "libpesematik", "version": "*", "reason": "Malicious", "severity": "high"},
+    {"name": "maratlib", "version": "*", "reason": "Malicious — part of coordinated attack campaign", "severity": "critical"},
+    {"name": "maratlib1", "version": "*", "reason": "Malicious — part of coordinated attack campaign", "severity": "critical"},
+    {"name": "matplolib", "version": "*", "reason": "Typosquatting matplotlib", "severity": "high"},
+    {"name": "mplatlib", "version": "*", "reason": "Typosquatting matplotlib", "severity": "high"},
+    {"name": "omatplotlib", "version": "*", "reason": "Typosquatting matplotlib", "severity": "high"},
+    {"name": "openvc", "version": "*", "reason": "Typosquatting opencv-python", "severity": "high"},
+    {"name": "python-ftp", "version": "*", "reason": "Typosquatting ftplib — malicious", "severity": "high"},
+    {"name": "requiremnets", "version": "*", "reason": "Typosquatting requirements — supply chain attack", "severity": "high"},
+    {"name": "setup-tools", "version": "*", "reason": "Typosquatting setuptools", "severity": "high"},
+    {"name": "xgboost1", "version": "*", "reason": "Typosquatting xgboost", "severity": "high"},
+    {"name": "daitoken", "version": "*", "reason": "Cryptocurrency theft", "severity": "critical"}
+  ]
+}

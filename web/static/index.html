@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cipher Shield</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f172a;
+    --surface:   #1e293b;
+    --border:    #334155;
+    --text:      #f1f5f9;
+    --muted:     #94a3b8;
+    --accent:    #6366f1;
+    --accent-h:  #818cf8;
+    --red:       #ef4444;
+    --amber:     #f59e0b;
+    --green:     #22c55e;
+    --sidebar-w: 220px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Login ── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg);
+  }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 36px;
+    width: 380px;
+  }
+
+  .login-card .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .login-card .logo svg { flex-shrink: 0; }
+
+  .login-card h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .login-card .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+
+  .field { margin-bottom: 16px; }
+
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .field select option { background: var(--surface); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled) { opacity: 0.85; }
+
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+  .btn-block { width: 100%; }
+
+  .error-msg {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 8px;
+    color: #fca5a5;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  /* ── App layout ── */
+  #app { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 10;
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-logo span {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .sidebar-logo .badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--accent);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .nav-section {
+    padding: 16px 10px;
+    flex: 1;
+  }
+
+  .nav-section label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 0 8px;
+    margin-bottom: 6px;
+  }
+
+  .nav-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    font-weight: 500;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 14px;
+    font-family: inherit;
+    transition: background 0.12s, color 0.12s;
+    margin-bottom: 2px;
+  }
+
+  .nav-pill:hover { background: rgba(99,102,241,0.1); color: var(--text); }
+  .nav-pill.active { background: rgba(99,102,241,0.18); color: var(--accent-h); }
+  .nav-pill.hidden { display: none; }
+
+  .nav-pill svg { flex-shrink: 0; }
+
+  .sidebar-footer {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+  }
+
+  .sidebar-footer .user-info {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .sidebar-footer .user-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .role-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(99,102,241,0.2);
+    color: var(--accent-h);
+    flex-shrink: 0;
+  }
+
+  .health-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .health-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .health-dot.offline { background: var(--red); }
+
+  .health-label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* Main content */
+  .main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .topbar h2 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .topbar .logout-btn {
+    font-size: 12px;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .topbar .logout-btn:hover { color: var(--text); border-color: var(--muted); }
+
+  .content { padding: 28px; flex: 1; }
+
+  /* Views */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* Summary cards */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .card .card-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+  }
+
+  .card .card-value {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+
+  .card.card-blocked .card-value { color: var(--red); }
+  .card.card-warn .card-value    { color: var(--amber); }
+  .card.card-clean .card-value   { color: var(--green); }
+
+  /* Tables */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .table-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .table-header h3 {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 11px 20px;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .empty-row td {
+    text-align: center;
+    color: var(--muted);
+    padding: 32px;
+  }
+  .empty-row:hover td { background: none; }
+
+  /* Scan view */
+  .scan-form-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 520px;
+    margin-bottom: 24px;
+  }
+
+  .scan-form-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 18px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .scan-result {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 640px;
+  }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .result-pkg {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .result-pkg span {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+
+  .result-meta {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .findings-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .finding-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+
+  .finding-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .finding-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .finding-refs {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .finding-refs a {
+    font-size: 11px;
+    color: var(--accent-h);
+    text-decoration: none;
+  }
+  .finding-refs a:hover { text-decoration: underline; }
+
+  /* Exceptions modal overlay */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    display: none;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 440px;
+    max-width: 95vw;
+  }
+
+  .modal h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+  }
+
+  /* Misc */
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+
+  .mono {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+  }
+
+  .cached-tag {
+    font-size: 11px;
+    color: var(--muted);
+    background: rgba(148,163,184,0.1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+
+  /* ── Lockfile upload ── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--surface);
+    margin-bottom: 24px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.05);
+  }
+  .drop-zone .drop-icon { margin-bottom: 12px; color: var(--muted); }
+  .drop-zone .drop-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .drop-zone .drop-sub   { font-size: 13px; color: var(--muted); }
+  .drop-zone .drop-types { font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+  .lockfile-progress {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: none;
+  }
+  .lockfile-progress .progress-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .lockfile-summary {
+    display: none;
+    margin-bottom: 24px;
+  }
+  .lockfile-summary .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .lockfile-summary .summary-filename {
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .lockfile-summary .summary-filename span {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+
+  .lockfile-row-findings {
+    display: none;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .lockfile-row-findings td {
+    padding: 12px 20px;
+    border-bottom: none;
+  }
+  .lockfile-row-findings .finding-card {
+    margin-bottom: 8px;
+  }
+  .lockfile-row-findings .finding-card:last-child {
+    margin-bottom: 0;
+  }
+  tr.has-findings { cursor: pointer; }
+  tr.has-findings:hover td { background: rgba(99,102,241,0.06); }
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="#6366f1"/>
+        <path d="M14 6L7 10v5c0 4.08 2.99 7.9 7 8.93C18.01 22.9 21 19.08 21 15v-5l-7-4z" fill="white" fill-opacity="0.9"/>
+        <path d="M11.5 14l1.8 1.8 3.2-3.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h1>Cipher Shield</h1>
+    </div>
+    <p class="subtitle">Sign in to access the security dashboard</p>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')login()">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="login()" id="login-btn">Sign In</button>
+    <div class="error-msg" id="login-error"></div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app" style="display:none">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="#6366f1"/>
+        <path d="M14 6L7 10v5c0 4.08 2.99 7.9 7 8.93C18.01 22.9 21 19.08 21 15v-5l-7-4z" fill="white" fill-opacity="0.9"/>
+        <path d="M11.5 14l1.8 1.8 3.2-3.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Cipher Shield</span>
+      <span class="badge">OSS</span>
+    </div>
+    <nav class="nav-section">
+      <label>Navigation</label>
+      <button class="nav-pill active" onclick="showView('dashboard')" id="nav-dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        Dashboard
+      </button>
+      <button class="nav-pill" onclick="showView('scan')" id="nav-scan">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Scan Package
+      </button>
+      <button class="nav-pill" onclick="showView('lockfile')" id="nav-lockfile">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        Lockfile Scan
+      </button>
+      <button class="nav-pill" onclick="showView('violations')" id="nav-violations">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Violations
+      </button>
+      <button class="nav-pill" onclick="showView('exceptions')" id="nav-exceptions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+        </svg>
+        Exceptions
+      </button>
+      <button class="nav-pill" onclick="showView('badlist')" id="nav-badlist">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+        Known Bad
+      </button>
+      <button class="nav-pill hidden" onclick="showView('users')" id="nav-users">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+        </svg>
+        Team
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info" id="sidebar-user" style="display:none">
+        <span class="user-email" id="sidebar-email"></span>
+        <span class="role-badge" id="sidebar-role"></span>
+      </div>
+      <div class="health-row">
+        <span class="health-dot" id="health-dot"></span>
+        <span class="health-label" id="health-label-text">Checking...</span>
+        <button class="logout-btn" onclick="logout()" id="logout-btn" style="display:none;margin-left:auto;font-size:11px;padding:3px 8px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer">Out</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    <div class="topbar">
+      <h2 id="view-title">Dashboard</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span id="topbar-user" style="font-size:12px;color:var(--muted);display:none"></span>
+      </div>
+    </div>
+    <div class="content">
+
+      <!-- Dashboard View -->
+      <div class="view active" id="view-dashboard">
+        <div class="cards-grid">
+          <div class="card">
+            <div class="card-label">Scans Today</div>
+            <div class="card-value" id="stat-total">—</div>
+          </div>
+          <div class="card card-blocked">
+            <div class="card-label">Blocked</div>
+            <div class="card-value" id="stat-blocked">—</div>
+          </div>
+          <div class="card card-warn">
+            <div class="card-label">Warnings</div>
+            <div class="card-value" id="stat-warn">—</div>
+          </div>
+          <div class="card card-clean">
+            <div class="card-label">Clean</div>
+            <div class="card-value" id="stat-clean">—</div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Recent Scan History</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadHistory()">Refresh</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Verdict</th>
+                <th>Findings</th>
+                <th>Scanned</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Scan View -->
+      <div class="view" id="view-scan">
+        <div class="scan-form-card">
+          <h3>Scan a Package</h3>
+          <div class="field">
+            <label>Ecosystem</label>
+            <select id="scan-ecosystem">
+              <option value="npm">npm</option>
+              <option value="pypi">PyPI</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Package Name</label>
+              <input type="text" id="scan-name" placeholder="e.g. lodash"
+                onkeydown="if(event.key==='Enter')scanPackage()">
+            </div>
+            <div class="field">
+              <label>Version</label>
+              <input type="text" id="scan-version" placeholder="e.g. 4.17.21"
+                onkeydown="if(event.key==='Enter')scanPackage()">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="scanPackage()" id="scan-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Run Scan
+          </button>
+        </div>
+        <div id="scan-result" style="display:none"></div>
+      </div>
+
+      <!-- Lockfile Scan View -->
+      <div class="view" id="view-lockfile">
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="drop-zone"
+          onclick="document.getElementById('lockfile-input').click()"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)">
+          <input type="file" id="lockfile-input"
+            accept=".json,.lock,.txt"
+            onchange="handleFileSelect(event)"
+            style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+          <div class="drop-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <polyline points="9 15 12 12 15 15"/>
+            </svg>
+          </div>
+          <div class="drop-title">Drop a lockfile here or click to browse</div>
+          <div class="drop-sub">Scans every package through the full pipeline</div>
+          <div class="drop-types">package-lock.json · yarn.lock · requirements.txt · poetry.lock</div>
+        </div>
+
+        <!-- Progress bar (shown while scanning) -->
+        <div class="lockfile-progress" id="lockfile-progress">
+          <div class="progress-label">
+            <span id="lockfile-progress-label">Scanning…</span>
+            <span id="lockfile-progress-pct"></span>
+          </div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="lockfile-progress-bar"></div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="lockfile-summary" id="lockfile-summary">
+          <div class="summary-header">
+            <div>
+              <div class="summary-filename" id="lockfile-filename">
+                —<span id="lockfile-pkg-count"></span>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span id="lockfile-stat-block" style="color:var(--red);font-size:13px;font-weight:600"></span>
+              <span id="lockfile-stat-warn"  style="color:var(--amber);font-size:13px;font-weight:600"></span>
+              <span id="lockfile-stat-clean" style="color:var(--green);font-size:13px;font-weight:600"></span>
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('lockfile-input').click()">Scan another</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Package</th>
+                  <th>Ecosystem</th>
+                  <th>Version</th>
+                  <th>Verdict</th>
+                  <th>Findings</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="lockfile-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Exceptions View -->
+      <div class="view" id="view-exceptions">
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Approved Exceptions</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddException()">+ Add Exception</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Reason</th>
+                <th>Added By</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="exceptions-tbody">
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Known Bad List View -->
+      <div class="view" id="view-badlist">
+        <div style="display:flex;gap:16px;margin-bottom:16px">
+          <input type="text" id="badlist-filter" placeholder="Filter by name, ecosystem, or reason…"
+            oninput="filterBadlist()"
+            style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Known Malicious Packages <span id="badlist-count" style="font-size:12px;color:var(--muted);font-weight:400"></span></h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Severity</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody id="badlist-tbody">
+              <tr class="empty-row"><td colspan="5">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Violations View -->
+      <div class="view" id="view-violations">
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Violations</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadViolations()">Refresh</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Verdict</th>
+                <th>Findings</th>
+                <th>Scanned</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="violations-tbody">
+              <tr class="empty-row"><td colspan="8">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Team / Users View (admin only) -->
+      <div class="view" id="view-users">
+        <div class="table-wrap" style="margin-bottom:24px">
+          <div class="table-header">
+            <h3>Team Members</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add User</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Member Since</th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody">
+              <tr class="empty-row"><td colspan="3">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Add Exception Modal -->
+<div class="modal-overlay" id="exception-modal">
+  <div class="modal">
+    <h3>Add Exception</h3>
+    <div class="field">
+      <label>Ecosystem</label>
+      <select id="exc-ecosystem">
+        <option value="npm">npm</option>
+        <option value="pypi">PyPI</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Package Name</label>
+      <input type="text" id="exc-name" placeholder="e.g. left-pad">
+    </div>
+    <div class="field">
+      <label>Version <span style="color:var(--muted);font-weight:400;text-transform:none">(optional — blank = all versions)</span></label>
+      <input type="text" id="exc-version" placeholder="e.g. 1.0.0">
+    </div>
+    <div class="field">
+      <label>Reason</label>
+      <textarea id="exc-reason" rows="3" placeholder="Why is this package approved despite findings?" style="resize:vertical"></textarea>
+    </div>
+    <div class="error-msg" id="exc-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('exception-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addException()" id="exc-submit-btn">Add Exception</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h3>Add Team Member</h3>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="user-email" placeholder="analyst@company.com">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="user-password" placeholder="••••••••">
+    </div>
+    <div class="field">
+      <label>Role</label>
+      <select id="user-role">
+        <option value="analyst">Analyst</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="error-msg" id="user-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addUser()" id="user-submit-btn">Add Member</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dismiss Modal -->
+<div class="modal-overlay" id="dismiss-modal">
+  <div class="modal">
+    <h3>Dismiss Violation</h3>
+    <div class="field">
+      <label>Note <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></label>
+      <textarea id="dismiss-note" rows="3" placeholder="e.g. Internal package, not malicious" style="resize:vertical"></textarea>
+    </div>
+    <div class="error-msg" id="dismiss-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('dismiss-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDismiss()" id="dismiss-submit-btn">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const TOKEN_KEY = 'cipher_shield_token';
+const USER_KEY  = 'cipher_shield_user';
+
+let authRequired = false;
+let currentUser  = null;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+function verdictBadge(v) {
+  const colors = { block: '#ef4444', warn: '#f59e0b', allow: '#22c55e' };
+  return `<span style="background:${colors[v]||'#6b7280'};color:white;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">${(v||'unknown').toUpperCase()}</span>`;
+}
+
+function severityBadge(s) {
+  const map = { critical:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#3b82f6', info:'#6b7280' };
+  const color = map[(s||'').toLowerCase()] || '#6b7280';
+  return `<span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700">${(s||'INFO').toUpperCase()}</span>`;
+}
+
+function sourceBadge(type) {
+  const labels = { 'known-bad':'Known-Bad', 'typosquat':'Typosquat', 'cve':'CVE', 'heuristic':'Heuristic', 'claude':'Claude' };
+  const colors = { 'known-bad':'#ef4444', 'typosquat':'#f97316', 'cve':'#3b82f6', 'heuristic':'#06b6d4', 'claude':'#818cf8' };
+  const t = (type||'').toLowerCase();
+  const label = labels[t] || type || 'unknown';
+  const color = colors[t] || '#6b7280';
+  return `<span style="border:1px solid ${color};color:${color};padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;opacity:0.85">${label}</span>`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (isNaN(d)) return ts;
+  return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function setLoading(btnId, loading, label) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.textContent = loading ? 'Loading…' : label;
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ── API layer ───────────────────────────────────────────────────────────────
+
+async function apiFetch(path, opts = {}) {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(path, { ...opts, headers });
+
+  if (res.status === 401 && authRequired) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    showLogin();
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+
+async function boot() {
+  // Restore saved user
+  try {
+    const saved = sessionStorage.getItem(USER_KEY);
+    if (saved) currentUser = JSON.parse(saved);
+  } catch (_) {}
+
+  let healthy = false;
+  try {
+    const res = await fetch('/api/v1/health');
+    healthy = res.ok;
+  } catch (_) {}
+
+  updateHealthIndicator(healthy);
+
+  const token = sessionStorage.getItem(TOKEN_KEY);
+
+  if (!token) {
+    // Probe whether auth is enforced
+    try {
+      const probe = await fetch('/api/v1/history', { headers:{'Content-Type':'application/json'} });
+      if (probe.status === 401) {
+        authRequired = true;
+        showLogin();
+        return;
+      }
+    } catch (_) {}
+  }
+
+  showApp();
+}
+
+function updateHealthIndicator(healthy) {
+  const dot = document.getElementById('health-dot');
+  const lbl = document.getElementById('health-label-text');
+  if (dot) dot.className = 'health-dot' + (healthy ? '' : ' offline');
+  if (lbl) lbl.textContent = healthy ? 'API online' : 'API offline';
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  document.getElementById('logout-btn').style.display = token ? 'inline-block' : 'none';
+
+  if (currentUser) {
+    document.getElementById('sidebar-user').style.display = 'flex';
+    document.getElementById('sidebar-email').textContent  = currentUser.email || '';
+    document.getElementById('sidebar-role').textContent   = currentUser.role  || '';
+    document.getElementById('topbar-user').style.display  = 'inline';
+    document.getElementById('topbar-user').textContent    = currentUser.email || '';
+
+    // Show Team nav only for admins
+    const usersNav = document.getElementById('nav-users');
+    if (currentUser.role === 'admin') {
+      usersNav.classList.remove('hidden');
+    } else {
+      usersNav.classList.add('hidden');
+    }
+  }
+
+  showView('dashboard');
+}
+
+async function login() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('login-btn', true, 'Sign In');
+  try {
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Invalid credentials.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const token = data.token;
+    if (!token) {
+      errEl.textContent = 'Login succeeded but no token returned.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    authRequired = true;
+    currentUser = data.user || { email };
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+    showApp();
+  } catch (e) {
+    errEl.textContent = 'Network error — check that the server is running.';
+    errEl.style.display = 'block';
+  } finally {
+    setLoading('login-btn', false, 'Sign In');
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  currentUser = null;
+  if (authRequired) showLogin();
+  else {
+    document.getElementById('logout-btn').style.display = 'none';
+    document.getElementById('sidebar-user').style.display = 'none';
+    document.getElementById('topbar-user').style.display = 'none';
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+const VIEW_TITLES = {
+  dashboard:  'Dashboard',
+  scan:       'Scan Package',
+  lockfile:   'Lockfile Scan',
+  violations: 'Violations',
+  exceptions: 'Exceptions',
+  badlist:    'Known Bad Packages',
+  users:      'Team',
+};
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-pill').forEach(p => p.classList.remove('active'));
+
+  const viewEl = document.getElementById('view-' + name);
+  const navEl  = document.getElementById('nav-' + name);
+  if (viewEl) viewEl.classList.add('active');
+  if (navEl)  navEl.classList.add('active');
+
+  const titleEl = document.getElementById('view-title');
+  if (titleEl) titleEl.textContent = VIEW_TITLES[name] || name;
+
+  if (name === 'dashboard')  loadHistory();
+  if (name === 'violations') loadViolations();
+  if (name === 'exceptions') loadExceptions();
+  if (name === 'badlist')    loadBadlist();
+  if (name === 'users')      loadUsers();
+}
+
+// ── Violations ────────────────────────────────────────────────────────────────
+
+let dismissTargetID = null;
+
+async function loadViolations() {
+  const tbody = document.getElementById('violations-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Loading…</td></tr>';
+  try {
+    const res = await apiFetch('/api/v1/violations?limit=200');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const items = data.violations || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No violations yet — all scanned packages are clean.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((v, idx) => {
+      const pkg   = v.package ? v.package.name      : '—';
+      const eco   = v.package ? v.package.ecosystem  : '—';
+      const ver   = v.package ? v.package.version    : '—';
+      const verb  = (v.verdict || 'unknown').toLowerCase();
+      const nf    = (v.findings || []).length;
+      const ts    = fmtDate(v.scanned_at);
+      const rowId = `viol-findings-${idx}`;
+
+      let statusCell;
+      if (v.dismissed && v.dismissal) {
+        const d = v.dismissal;
+        const byLine = d.dismissed_by ? `<span style="color:var(--muted);font-size:11px">by ${esc(d.dismissed_by)}</span>` : '';
+        const note   = d.note ? `<span style="color:var(--muted);font-size:11px;display:block;margin-top:2px">"${esc(d.note)}"</span>` : '';
+        statusCell = `<span style="color:var(--green);font-size:12px;font-weight:600">Dismissed</span><br>${byLine}${note}`;
+      } else {
+        statusCell = `<span style="color:var(--amber);font-size:12px;font-weight:600">Open</span>`;
+      }
+
+      const dismissBtn = v.dismissed
+        ? ''
+        : `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDismiss('${esc(v.scan_id)}')">Dismiss</button>`;
+
+      const findingsHtml = (v.findings || []).map(f => {
+        const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+        const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      const detailRow = nf > 0 ? `
+        <tr class="lockfile-row-findings" id="${rowId}">
+          <td colspan="8"><div style="padding:4px 0">${findingsHtml}</div></td>
+        </tr>` : '';
+
+      const expandBtn = nf > 0
+        ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+        : '';
+
+      return `<tr class="${nf > 0 ? 'has-findings' : ''}" ${nf > 0 ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
+        <td class="mono">${esc(pkg)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td>${verdictBadge(verb)}</td>
+        <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+        <td style="color:var(--muted)">${ts}</td>
+        <td>${statusCell}</td>
+        <td>${expandBtn || ''} ${dismissBtn}</td>
+      </tr>${detailRow}`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8" style="color:var(--red)">Failed to load violations.</td></tr>';
+    }
+  }
+}
+
+function openDismiss(scanID) {
+  dismissTargetID = scanID;
+  document.getElementById('dismiss-note').value = '';
+  document.getElementById('dismiss-error').style.display = 'none';
+  document.getElementById('dismiss-modal').classList.add('open');
+}
+
+async function submitDismiss() {
+  if (!dismissTargetID) return;
+  const note    = document.getElementById('dismiss-note').value.trim();
+  const errEl   = document.getElementById('dismiss-error');
+  const btn     = document.getElementById('dismiss-submit-btn');
+  errEl.style.display = 'none';
+  setLoading('dismiss-submit-btn', true, 'Dismiss');
+  try {
+    const res = await apiFetch(`/api/v1/violations/${encodeURIComponent(dismissTargetID)}/dismiss`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error || `HTTP ${res.status}`); }
+    closeModal('dismiss-modal');
+    loadViolations();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    setLoading('dismiss-submit-btn', false, 'Dismiss');
+  }
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+async function loadHistory() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/history?limit=100');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // API returns { results: [...], count: N }
+    const items = data.results || [];
+
+    // Today stats
+    const today = new Date().toDateString();
+    const counts = { total: 0, block: 0, warn: 0, allow: 0 };
+    for (const i of items) {
+      if (new Date(i.scanned_at).toDateString() === today) {
+        counts.total++;
+        counts[i.verdict] = (counts[i.verdict] || 0) + 1;
+      }
+    }
+
+    document.getElementById('stat-total').textContent   = counts.total;
+    document.getElementById('stat-blocked').textContent = counts.block  || 0;
+    document.getElementById('stat-warn').textContent    = counts.warn   || 0;
+    document.getElementById('stat-clean').textContent   = counts.allow  || 0;
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No scan history yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.slice(0, 50).map((i, idx) => {
+      const pkg      = i.package ? i.package.name     : '—';
+      const eco      = i.package ? i.package.ecosystem : '—';
+      const ver      = i.package ? i.package.version   : '—';
+      const verb     = (i.verdict || 'unknown').toLowerCase();
+      const findings = i.findings || [];
+      const nf       = findings.length;
+      const ts       = fmtDate(i.scanned_at);
+      const cached   = i.cached_at ? '<span class="cached-tag">cached</span>' : '';
+      const claudeTag = i.claude_used ? `<span style="font-size:10px;color:var(--accent-h);margin-left:4px">● Claude</span>` : '';
+      const rowId    = `hist-findings-${idx}`;
+
+      const histPkg = i.package || {};
+      const findingsHtml = findings.map(f => {
+        const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+        const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+        const pkgAttr = esc(JSON.stringify({name: histPkg.name || '', version: histPkg.version || '', ecosystem: histPkg.ecosystem || ''}));
+        const fAttr   = esc(JSON.stringify(f));
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px;padding:2px 8px"
+              data-pkg="${pkgAttr}" data-finding="${fAttr}"
+              onclick="expandFinding(JSON.parse(this.dataset.pkg), JSON.parse(this.dataset.finding), this)">Explain</button>
+          </div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      const detailRow = nf > 0 ? `
+        <tr class="lockfile-row-findings" id="${rowId}">
+          <td colspan="7"><div style="padding:4px 0">${findingsHtml}</div></td>
+        </tr>` : '';
+
+      const expandBtn = nf > 0
+        ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+        : '';
+
+      return `<tr class="${nf > 0 ? 'has-findings' : ''}" ${nf > 0 ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
+        <td class="mono">${esc(pkg)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td>${verdictBadge(verb)} ${cached}${claudeTag}</td>
+        <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+        <td style="color:var(--muted)">${ts}</td>
+        <td>${expandBtn}</td>
+      </tr>${detailRow}`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7" style="color:var(--red)">Failed to load history.</td></tr>';
+      ['stat-total','stat-blocked','stat-warn','stat-clean'].forEach(id => {
+        document.getElementById(id).textContent = '—';
+      });
+    }
+  }
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+
+async function scanPackage() {
+  const ecosystem = document.getElementById('scan-ecosystem').value;
+  const name      = document.getElementById('scan-name').value.trim();
+  const version   = document.getElementById('scan-version').value.trim();
+  const resultEl  = document.getElementById('scan-result');
+
+  if (!name) { document.getElementById('scan-name').focus(); return; }
+
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  resultEl.style.display = 'none';
+
+  try {
+    const body = { ecosystem, name };
+    if (version) body.version = version;
+
+    const res = await apiFetch('/api/v1/scan/package', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="scan-result" style="border-color:var(--red)">
+        <p style="color:var(--red)">${esc(data.error || `Scan failed (HTTP ${res.status})`)}</p>
+      </div>`;
+      return;
+    }
+
+    renderScanResult(data, resultEl);
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="scan-result" style="border-color:var(--red)">
+        <p style="color:var(--red)">Network error — could not reach the API.</p>
+      </div>`;
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Run Scan`;
+  }
+}
+
+function renderScanResult(data, container) {
+  const pkg      = data.package || {};
+  const name     = pkg.name    || '—';
+  const version  = pkg.version || '';
+  const eco      = pkg.ecosystem || '';
+  const verdict  = (data.verdict || 'unknown').toLowerCase();
+  const findings = data.findings || [];
+  const verdictColor = { block:'var(--red)', warn:'var(--amber)', allow:'var(--green)' }[verdict] || 'var(--muted)';
+  const cached   = data.cached_at ? `<span class="cached-tag" style="margin-left:8px">cached ${fmtDate(data.cached_at)}</span>` : '';
+  const claudeTag = data.claude_used ? `<span style="font-size:11px;color:var(--accent-h);margin-left:8px">● Claude</span>` : '';
+
+  const findingsHtml = findings.length === 0
+    ? '<p style="color:var(--muted);font-size:13px">No findings — package looks clean.</p>'
+    : `<div class="findings-list">${findings.map((f, fi) => {
+        const refs = (f.references || []).map(r =>
+          `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`
+        ).join('');
+        const cve  = f.cve  ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">${esc(f.cve)}</span>`  : '';
+        const cvss = f.cvss ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">CVSS ${f.cvss}</span>` : '';
+        const pkgAttr = esc(JSON.stringify({name: pkg.name || '', version: pkg.version || '', ecosystem: pkg.ecosystem || ''}));
+        const fAttr   = esc(JSON.stringify(f));
+        return `<div class="finding-card">
+          <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px;padding:2px 8px"
+              data-pkg="${pkgAttr}" data-finding="${fAttr}"
+              onclick="expandFinding(JSON.parse(this.dataset.pkg), JSON.parse(this.dataset.finding), this)">Explain</button>
+          </div>
+          ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+          ${refs ? `<div class="finding-refs">${refs}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+
+  container.style.display = 'block';
+  container.innerHTML = `<div class="scan-result" style="border-color:${verdictColor}">
+    <div class="result-header">
+      <div class="result-pkg">${esc(name)}<span>${version ? '@'+esc(version) : ''} · ${esc(eco)}</span></div>
+      <div style="display:flex;align-items:center">${verdictBadge(verdict)}${cached}${claudeTag}</div>
+    </div>
+    <div class="result-meta">
+      <span>Scan ID: <span class="mono" style="font-size:11px">${esc(data.scan_id||'')}</span></span>
+      <span>Duration: ${data.duration_ms || 0}ms</span>
+    </div>
+    <p class="section-title" style="font-size:13px;margin-bottom:12px">Findings (${findings.length})</p>
+    ${findingsHtml}
+  </div>`;
+}
+
+// ── Exceptions ────────────────────────────────────────────────────────────────
+
+async function loadExceptions() {
+  const tbody = document.getElementById('exceptions-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/exceptions');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // API returns { exceptions: [...] }
+    const items = data.exceptions || [];
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No exceptions defined.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const excId = item.exception_id || '';
+      const ver   = item.version || '';
+      return `<tr>
+        <td class="mono">${esc(item.name || '—')}</td>
+        <td>${esc(item.ecosystem || '—')}</td>
+        <td class="mono">${ver ? esc(ver) : '<span style="color:var(--muted)">all</span>'}</td>
+        <td style="max-width:280px;color:var(--muted);font-size:13px">${esc(item.reason || '—')}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(item.created_by || '—')}</td>
+        <td style="color:var(--muted)">${fmtDate(item.created_at)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteException('${esc(excId)}')">Remove</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7" style="color:var(--red)">Failed to load exceptions.</td></tr>';
+    }
+  }
+}
+
+function openAddException() {
+  document.getElementById('exc-name').value    = '';
+  document.getElementById('exc-version').value = '';
+  document.getElementById('exc-reason').value  = '';
+  document.getElementById('exc-error').style.display = 'none';
+  document.getElementById('exception-modal').classList.add('open');
+  setTimeout(() => document.getElementById('exc-name').focus(), 60);
+}
+
+async function addException() {
+  const ecosystem = document.getElementById('exc-ecosystem').value;
+  const name      = document.getElementById('exc-name').value.trim();
+  const version   = document.getElementById('exc-version').value.trim();
+  const reason    = document.getElementById('exc-reason').value.trim();
+  const errEl     = document.getElementById('exc-error');
+
+  errEl.style.display = 'none';
+  if (!name) {
+    errEl.textContent = 'Package name is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!reason) {
+    errEl.textContent = 'Reason is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('exc-submit-btn', true, 'Add Exception');
+  try {
+    const body = { ecosystem, name, reason };
+    if (version) body.version = version;
+
+    const res = await apiFetch('/api/v1/exceptions', { method:'POST', body:JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || `Failed (HTTP ${res.status})`;
+      errEl.style.display = 'block';
+      return;
+    }
+
+    closeModal('exception-modal');
+    loadExceptions();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      errEl.textContent = 'Network error — could not reach the API.';
+      errEl.style.display = 'block';
+    }
+  } finally {
+    setLoading('exc-submit-btn', false, 'Add Exception');
+  }
+}
+
+async function deleteException(id) {
+  if (!id) return;
+  if (!confirm('Remove this exception?')) return;
+  try {
+    const res = await apiFetch(`/api/v1/exceptions/${encodeURIComponent(id)}`, { method:'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || `Delete failed (HTTP ${res.status})`);
+      return;
+    }
+    loadExceptions();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') alert('Network error — could not reach the API.');
+  }
+}
+
+// ── Known Bad List ────────────────────────────────────────────────────────────
+
+let badlistAll = [];
+
+async function loadBadlist() {
+  const tbody = document.getElementById('badlist-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById('badlist-count').textContent = '';
+
+  try {
+    const res = await apiFetch('/api/v1/badlist');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const npm   = (data.npm   || []).map(e => ({...e, ecosystem: 'npm'}));
+    const pypi  = (data.pypi  || []).map(e => ({...e, ecosystem: 'pypi'}));
+    badlistAll  = [...npm, ...pypi].sort((a, b) => a.name.localeCompare(b.name));
+
+    renderBadlist(badlistAll);
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="5" style="color:var(--red)">Failed to load badlist.</td></tr>`;
+    }
+  }
+}
+
+function filterBadlist() {
+  const q = document.getElementById('badlist-filter').value.trim().toLowerCase();
+  const filtered = q
+    ? badlistAll.filter(e =>
+        e.name.toLowerCase().includes(q) ||
+        e.ecosystem.toLowerCase().includes(q) ||
+        (e.reason || '').toLowerCase().includes(q))
+    : badlistAll;
+  renderBadlist(filtered);
+}
+
+function renderBadlist(entries) {
+  const tbody = document.getElementById('badlist-tbody');
+  const count = document.getElementById('badlist-count');
+  count.textContent = `(${entries.length} entries)`;
+
+  if (!entries.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No entries.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = entries.map(e => {
+    const sev = (e.severity || 'info').toLowerCase();
+    const sevColor = {critical:'var(--red)',high:'var(--amber)',medium:'#f97316',low:'var(--muted)',info:'var(--muted)'}[sev] || 'var(--muted)';
+    const ver = e.version && e.version !== '*' ? esc(e.version) : '<span style="color:var(--muted)">all versions</span>';
+    return `<tr>
+      <td class="mono">${esc(e.name)}</td>
+      <td>${esc(e.ecosystem)}</td>
+      <td>${ver}</td>
+      <td><span style="color:${sevColor};font-size:11px;font-weight:600;text-transform:uppercase">${esc(e.severity || 'info')}</span></td>
+      <td style="color:var(--muted)">${esc(e.reason || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Finding Expander (Claude) ─────────────────────────────────────────────────
+
+async function expandFinding(pkg, finding, btnEl) {
+  const card = btnEl.closest('.finding-card');
+  let explanationEl = card.querySelector('.finding-explanation');
+
+  if (explanationEl) {
+    explanationEl.remove();
+    btnEl.textContent = 'Explain';
+    return;
+  }
+
+  btnEl.disabled = true;
+  btnEl.textContent = 'Asking Claude…';
+
+  try {
+    const res = await apiFetch('/api/v1/findings/expand', {
+      method: 'POST',
+      body: JSON.stringify({ package: pkg, finding }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (res.status === 501) {
+        alert('Claude is not enabled on this server (set ANTHROPIC_API_KEY).');
+      } else {
+        alert(data.error || 'Explanation failed.');
+      }
+      return;
+    }
+
+    explanationEl = document.createElement('div');
+    explanationEl.className = 'finding-explanation';
+    explanationEl.style.cssText = 'margin-top:10px;padding:10px 12px;background:rgba(99,102,241,.08);border-left:2px solid var(--accent);border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap';
+    explanationEl.textContent = data.explanation || '';
+    card.appendChild(explanationEl);
+    btnEl.textContent = 'Hide';
+  } catch (e) {
+    if (e.message !== 'Unauthorized') alert('Network error');
+  } finally {
+    btnEl.disabled = false;
+  }
+}
+
+// ── Team / Users (admin) ──────────────────────────────────────────────────────
+
+async function loadUsers() {
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="3">Loading…</td></tr>';
+
+  try {
+    const res = await apiFetch('/api/v1/users');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const items = data.users || [];
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No team members yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.map(u => {
+      const roleBg = u.role === 'admin' ? '#6366f1' : '#334155';
+      return `<tr>
+        <td>${esc(u.email || '—')}</td>
+        <td><span style="background:${roleBg};color:white;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700">${esc((u.role||'analyst').toUpperCase())}</span></td>
+        <td style="color:var(--muted)">${fmtDate(u.created_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="3" style="color:var(--red)">Failed to load team members.</td></tr>';
+    }
+  }
+}
+
+function openAddUser() {
+  document.getElementById('user-email').value    = '';
+  document.getElementById('user-password').value = '';
+  document.getElementById('user-role').value     = 'analyst';
+  document.getElementById('user-error').style.display = 'none';
+  document.getElementById('user-modal').classList.add('open');
+  setTimeout(() => document.getElementById('user-email').focus(), 60);
+}
+
+async function addUser() {
+  const email    = document.getElementById('user-email').value.trim();
+  const password = document.getElementById('user-password').value;
+  const role     = document.getElementById('user-role').value;
+  const errEl    = document.getElementById('user-error');
+
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  setLoading('user-submit-btn', true, 'Add Member');
+  try {
+    const res = await apiFetch('/api/v1/users', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, role }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      errEl.textContent = data.error || `Failed (HTTP ${res.status})`;
+      errEl.style.display = 'block';
+      return;
+    }
+
+    closeModal('user-modal');
+    loadUsers();
+  } catch (e) {
+    if (e.message !== 'Unauthorized') {
+      errEl.textContent = 'Network error — could not reach the API.';
+      errEl.style.display = 'block';
+    }
+  } finally {
+    setLoading('user-submit-btn', false, 'Add Member');
+  }
+}
+
+// ── Lockfile Scan ─────────────────────────────────────────────────────────────
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) runLockfileScan(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) runLockfileScan(file);
+  e.target.value = '';
+}
+
+async function runLockfileScan(file) {
+  const progressEl  = document.getElementById('lockfile-progress');
+  const summaryEl   = document.getElementById('lockfile-summary');
+  const barEl       = document.getElementById('lockfile-progress-bar');
+  const labelEl     = document.getElementById('lockfile-progress-label');
+  const pctEl       = document.getElementById('lockfile-progress-pct');
+
+  summaryEl.style.display  = 'none';
+  progressEl.style.display = 'block';
+  barEl.style.width        = '0%';
+  labelEl.textContent      = `Uploading ${file.name}…`;
+  pctEl.textContent        = '';
+
+  try {
+    // Animate bar to 30% during upload
+    barEl.style.width = '30%';
+
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/v1/scan/lockfile', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    barEl.style.width   = '70%';
+    labelEl.textContent = 'Processing results…';
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      progressEl.style.display = 'none';
+      alert(data.error || `Scan failed (HTTP ${res.status})`);
+      return;
+    }
+
+    barEl.style.width = '100%';
+    setTimeout(() => {
+      progressEl.style.display = 'none';
+      renderLockfileResults(file.name, data);
+    }, 300);
+
+  } catch (e) {
+    progressEl.style.display = 'none';
+    if (e.message !== 'Unauthorized') {
+      alert('Network error — could not reach the API.');
+    }
+  }
+}
+
+function renderLockfileResults(filename, data) {
+  const results = data.results || [];
+  const summaryEl = document.getElementById('lockfile-summary');
+
+  // Stats
+  let nBlock = 0, nWarn = 0, nClean = 0, nErr = 0;
+  for (const r of results) {
+    if (r.error) { nErr++; continue; }
+    const v = (r.result && r.result.verdict) || 'allow';
+    if (v === 'block') nBlock++;
+    else if (v === 'warn') nWarn++;
+    else nClean++;
+  }
+
+  document.getElementById('lockfile-filename').firstChild.textContent = filename;
+  document.getElementById('lockfile-pkg-count').textContent = ` — ${results.length} package${results.length !== 1 ? 's' : ''}`;
+  document.getElementById('lockfile-stat-block').textContent = nBlock ? `${nBlock} blocked`  : '';
+  document.getElementById('lockfile-stat-warn').textContent  = nWarn  ? `${nWarn} warnings`  : '';
+  document.getElementById('lockfile-stat-clean').textContent = `${nClean} clean`;
+
+  const tbody = document.getElementById('lockfile-tbody');
+  tbody.innerHTML = results.map((r, idx) => {
+    const pkg      = r.package || {};
+    const name     = pkg.name    || '—';
+    const eco      = pkg.ecosystem || '—';
+    const ver      = pkg.version  || '—';
+
+    if (r.error) {
+      return `<tr>
+        <td class="mono">${esc(name)}</td>
+        <td>${esc(eco)}</td>
+        <td class="mono">${esc(ver)}</td>
+        <td colspan="3" style="color:var(--muted);font-size:12px">${esc(r.error)}</td>
+      </tr>`;
+    }
+
+    const result   = r.result || {};
+    const verdict  = (result.verdict || 'allow').toLowerCase();
+    const findings = result.findings || [];
+    const nf       = findings.length;
+    const hasFindings = nf > 0;
+    const rowId    = `lf-findings-${idx}`;
+
+    const findingsHtml = findings.map(f => {
+      const cve  = f.cve  ? ` <span style="font-size:11px;color:var(--muted)">${esc(f.cve)}</span>`  : '';
+      const cvss = f.cvss ? ` <span style="font-size:11px;color:var(--muted)">CVSS ${f.cvss}</span>` : '';
+      return `<div class="finding-card">
+        <div class="finding-title">${severityBadge(f.severity)} ${sourceBadge(f.type)} ${esc(f.title || f.type || 'Finding')}${cve}${cvss}</div>
+        ${f.description ? `<div class="finding-desc">${esc(f.description)}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const expandBtn = hasFindings
+      ? `<button class="btn btn-secondary btn-sm" onclick="toggleLockfileFindings('${rowId}',this)">Details</button>`
+      : '';
+
+    const detailRow = hasFindings ? `
+      <tr class="lockfile-row-findings" id="${rowId}">
+        <td colspan="6"><div style="padding:4px 0">${findingsHtml}</div></td>
+      </tr>` : '';
+
+    return `<tr class="${hasFindings ? 'has-findings' : ''}" ${hasFindings ? `onclick="toggleLockfileFindings('${rowId}',null)"` : ''}>
+      <td class="mono">${esc(name)}</td>
+      <td>${esc(eco)}</td>
+      <td class="mono">${esc(ver)}</td>
+      <td>${verdictBadge(verdict)}</td>
+      <td>${nf > 0 ? `<span style="color:var(--amber)">${nf}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+      <td>${expandBtn}</td>
+    </tr>${detailRow}`;
+  }).join('');
+
+  summaryEl.style.display = 'block';
+}
+
+function toggleLockfileFindings(rowId, btn) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const open = row.style.display === 'table-row';
+  row.style.display = open ? 'none' : 'table-row';
+  if (btn) btn.textContent = open ? 'Details' : 'Hide';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// ── Modal close on backdrop click ────────────────────────────────────────────
+
+['exception-modal','user-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) closeModal(id);
+  });
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>

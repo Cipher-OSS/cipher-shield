@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install CGO deps
+        run: sudo apt-get update -qq && sudo apt-get install -y gcc
+
+      - name: Build
+        run: CGO_ENABLED=1 go build ./...
+
+      - name: Test
+        run: CGO_ENABLED=1 go test ./...
+
+      - name: Smoke test — proxy block (start, block colourama, stop)
+        run: |
+          CGO_ENABLED=1 go build -o cipher-shield ./cmd/shield/
+          ./cipher-shield proxy start &
+          PROXY_PID=$!
+
+          # Poll until the proxy binds (up to 90s)
+          for i in $(seq 1 30); do
+            nc -z 127.0.0.1 7070 2>/dev/null && break
+            sleep 3
+          done
+          nc -z 127.0.0.1 7070 2>/dev/null || { echo "Proxy did not bind within 90s"; kill $PROXY_PID; exit 1; }
+          echo "OK: proxy listening on 7070"
+
+          # colourama is a known-bad PyPI package — proxy must return 403 at the simple API level.
+          # Using curl to check the exact HTTP status so the test can't pass due to a PyPI 404.
+          BLOCK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:7070/simple/colourama/")
+          if [ "$BLOCK_STATUS" != "403" ]; then
+            echo "colourama was not blocked — expected HTTP 403 from proxy, got $BLOCK_STATUS"
+            kill $PROXY_PID
+            exit 1
+          fi
+          echo "OK: colourama (pypi) blocked at simple API (HTTP $BLOCK_STATUS)"
+
+          ./cipher-shield proxy stop
+          echo "OK: proxy stopped"
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t cipher-shield:ci .
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install mingw (CGO C compiler for SQLite)
+        run: choco install mingw --no-progress -y
+
+      - name: Build
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: go build -o cipher-shield.exe ./cmd/shield/
+
+      - name: Unit tests
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: go test ./...
+
+      - name: Smoke test — version
+        run: .\cipher-shield.exe version
+
+      - name: Smoke test — proxy (start, intercept, stop, config restore)
+        shell: pwsh
+        run: |
+          # Start proxy — configures npm + pip and binds to 127.0.0.1:7070
+          $proc = Start-Process -FilePath ".\cipher-shield.exe" -ArgumentList "proxy","start" -PassThru -NoNewWindow
+
+          # Poll until the proxy binds (pipeline init can take 30+ seconds on CI)
+          $deadline = [DateTime]::Now.AddSeconds(90)
+          $ready = $false
+          while ([DateTime]::Now -lt $deadline) {
+            if ($proc.HasExited) {
+              Write-Error "Proxy process exited early (code $($proc.ExitCode))"; exit 1
+            }
+            $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 7070 -WarningAction SilentlyContinue -InformationLevel Quiet
+            if ($conn) { $ready = $true; break }
+            Start-Sleep -Seconds 3
+          }
+          if (-not $ready) {
+            Write-Error "Proxy did not bind to port 7070 within 90 seconds"; exit 1
+          }
+          Write-Host "OK: proxy listening on 7070"
+
+          # Allow path: lodash is clean and must install successfully
+          npm install --prefer-online lodash
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path "node_modules\lodash")) {
+            Write-Error "lodash install failed — proxy incorrectly blocked a clean package"; exit 1
+          }
+          Write-Host "OK: lodash passed through"
+
+          # Block path: colourama is a known-bad PyPI package (typosquat of colorama).
+          # We check at the /simple/ API level so the test is independent of whether
+          # the package still exists on PyPI — the proxy must return 403 by name before
+          # any tarball download occurs.
+          $blockStatus = curl.exe -s -o NUL -w "%{http_code}" "http://127.0.0.1:7070/simple/colourama/"
+          if ($blockStatus -ne "403") {
+            Write-Error "colourama was not blocked — expected HTTP 403 from proxy, got $blockStatus"; exit 1
+          }
+          Write-Host "OK: colourama (pypi) blocked at simple API (HTTP $blockStatus)"
+
+          # Stop proxy and verify npm + pip configs are restored
+          .\cipher-shield.exe proxy stop
+
+          if ((npm config get registry) -like "*127.0.0.1:7070*") {
+            Write-Error "npm registry not restored after proxy stop"; exit 1
+          }
+          Write-Host "OK: npm registry restored"
+
+          $pipConf = "$env:APPDATA\pip\pip.ini"
+          if ((Test-Path $pipConf) -and (Get-Content $pipConf -Raw) -like "*127.0.0.1:7070*") {
+            Write-Error "pip config not restored after proxy stop"; exit 1
+          }
+          Write-Host "OK: pip config restored"

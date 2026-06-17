@@ -1,0 +1,9 @@
+bin/
+*.db
+*.db-shm
+*.db-wal
+.cipher-shield/
+node_modules/
+package.json
+package-lock.json
+.npmrc
