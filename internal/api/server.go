@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -43,13 +44,14 @@ type Server struct {
 	router       *mux.Router
 	store        db.Store
 	scanner      Scanner
-	expander     Expander     // optional; nil when no Anthropic key
+	expander     Expander      // optional; nil when no Anthropic key
 	badlist      BadlistSource // optional; nil disables /api/v1/badlist
 	jwtSecret    []byte
 	proxyToken   []byte
 	mode         string     // enforce | warn | audit
 	corsOrigin   string     // allowed CORS origin; "*" if empty
-	loginLimiter *ipLimiter // per-IP rate limiter for login endpoint
+	loginLimiter *ipLimiter // 5 attempts per minute per IP
+	apiLimiter   *ipLimiter // 120 requests per minute per IP
 }
 
 // New creates a Server.
@@ -67,10 +69,17 @@ func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, co
 		proxyToken:   proxyToken,
 		mode:         mode,
 		corsOrigin:   corsOrigin,
-		loginLimiter: newIPLimiter(1.0/12.0, 5), // 5 attempts per minute per IP
+		loginLimiter: newIPLimiter(1.0/12.0, 5),  // 5 attempts per minute per IP
+		apiLimiter:   newIPLimiter(2.0, 20),       // 120 requests per minute per IP
 	}
 	s.routes()
 	return s
+}
+
+// Stop releases resources held by the server (background goroutines).
+func (s *Server) Stop() {
+	s.loginLimiter.stop()
+	s.apiLimiter.stop()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -99,15 +108,15 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/v1/proxy/exceptions", s.requireProxyToken(s.handleProxyExceptions)).Methods("GET", "OPTIONS")
 
 	// Scan
-	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.handleScanPackage)).Methods("POST", "OPTIONS")
-	s.router.HandleFunc("/api/v1/scan/lockfile", s.requireUser(s.handleScanLockfile)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.rateLimitAPI(s.handleScanPackage))).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/scan/lockfile", s.requireUser(s.rateLimitAPI(s.handleScanLockfile))).Methods("POST", "OPTIONS")
 
 	// History
-	s.router.HandleFunc("/api/v1/history", s.requireUser(s.handleHistory)).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/history", s.requireUser(s.rateLimitAPI(s.handleHistory))).Methods("GET", "OPTIONS")
 
 	// Violations + triage
-	s.router.HandleFunc("/api/v1/violations", s.requireUser(s.handleListViolations)).Methods("GET", "OPTIONS")
-	s.router.HandleFunc("/api/v1/violations/{id}/dismiss", s.requireUser(s.handleDismiss)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/violations", s.requireUser(s.rateLimitAPI(s.handleListViolations))).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/violations/{id}/dismiss", s.requireUser(s.rateLimitAPI(s.handleDismiss))).Methods("POST", "OPTIONS")
 
 	// Finding explanation (Claude-powered, optional)
 	s.router.HandleFunc("/api/v1/findings/expand", s.requireUser(s.handleExpandFinding)).Methods("POST", "OPTIONS")
@@ -412,8 +421,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Role     string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
-		jsonError(w, "email and password required", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || len(req.Password) < 8 {
+		jsonError(w, "email and password of at least 8 characters required", http.StatusBadRequest)
 		return
 	}
 	count, err := s.store.CountUsers()
@@ -539,7 +548,7 @@ func (s *Server) requireProxyToken(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		h := r.Header.Get("Authorization")
-		if !strings.HasPrefix(h, "Bearer ") || h[7:] != string(s.proxyToken) {
+		if !strings.HasPrefix(h, "Bearer ") || !hmac.Equal([]byte(h[7:]), s.proxyToken) {
 			jsonError(w, "invalid proxy token", http.StatusUnauthorized)
 			return
 		}

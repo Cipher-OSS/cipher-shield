@@ -11,6 +11,19 @@ import (
 	"syscall"
 )
 
+// validateProxyAddr rejects addresses that could inject entries into pip.conf or
+// cause unexpected behaviour in npm config. Only http:// and https:// schemes are
+// allowed; newlines and carriage returns are always rejected.
+func validateProxyAddr(addr string) error {
+	if strings.ContainsAny(addr, "\r\n") {
+		return fmt.Errorf("proxy address contains invalid characters")
+	}
+	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
+		return fmt.Errorf("proxy address must start with http:// or https://")
+	}
+	return nil
+}
+
 // ConfigDir returns ~/.cipher-shield/
 func ConfigDir() string {
 	home, _ := os.UserHomeDir()
@@ -23,6 +36,9 @@ func origPIPFile() string { return filepath.Join(ConfigDir(), "pip_index.orig") 
 
 // SaveAndSetNPM saves the current npm registry and points npm at the proxy.
 func SaveAndSetNPM(proxyAddr string) error {
+	if err := validateProxyAddr(proxyAddr); err != nil {
+		return fmt.Errorf("SaveAndSetNPM: %w", err)
+	}
 	out, _ := exec.Command("npm", "config", "get", "registry").Output()
 	orig := strings.TrimSpace(string(out))
 	if orig == "" {
@@ -51,6 +67,9 @@ func RestoreNPM() {
 // SaveAndSetPIP saves the current pip index URL and points pip at the proxy.
 // Writes ~/.pip/pip.conf (macOS/Linux) or %APPDATA%\pip\pip.ini (Windows).
 func SaveAndSetPIP(proxyAddr string) error {
+	if err := validateProxyAddr(proxyAddr); err != nil {
+		return fmt.Errorf("SaveAndSetPIP: %w", err)
+	}
 	pipConf := pipConfigPath()
 
 	existing, _ := os.ReadFile(pipConf)

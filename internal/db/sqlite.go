@@ -20,6 +20,10 @@ func openSQLite(path string) (*sqliteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite3: %w", err)
 	}
+	// SQLite supports only one writer at a time even in WAL mode. A single
+	// connection prevents "database is locked" errors under concurrent writes.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite3: %w", err)

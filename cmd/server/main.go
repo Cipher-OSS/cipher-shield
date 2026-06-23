@@ -40,6 +40,14 @@ func main() {
 	historyDays    := flag.Int("history-days",        envOrInt("SHIELD_HISTORY_DAYS", 30),               "Days of scan history to retain (0 = keep forever)")
 	flag.Parse()
 
+	// Reject partial TLS configuration — both cert and key must be set together.
+	if (*tlsCert == "") != (*tlsKey == "") {
+		log.Fatalf("[startup] SHIELD_TLS_CERT and SHIELD_TLS_KEY must both be set or both be empty")
+	}
+	if (*proxyTLSCert == "") != (*proxyTLSKey == "") {
+		log.Fatalf("[startup] SHIELD_PROXY_TLS_CERT and SHIELD_PROXY_TLS_KEY must both be set or both be empty")
+	}
+
 	log.SetFlags(log.Ltime | log.Lshortfile)
 	log.Printf("╔══════════════════════════════════════╗")
 	log.Printf("║  cipher-shield  %-20s║", version)
