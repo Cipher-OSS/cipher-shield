@@ -413,7 +413,7 @@ func TestCreateUserAsAdmin(t *testing.T) {
 	token := login(t, srv, "admin@example.com", "adminpass")
 
 	w := doJSON(srv, "POST", "/api/v1/users", token, map[string]string{
-		"email": "analyst@example.com", "password": "pw", "role": "analyst",
+		"email": "analyst@example.com", "password": "analystpass", "role": "analyst",
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d — %s", w.Code, w.Body.String())

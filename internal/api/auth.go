@@ -130,13 +130,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // issueToken creates a signed HS256 JWT with 24h expiry.
 func issueToken(userID, email, role string, secret []byte) (string, error) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	payload, _ := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]interface{}{
 		"sub":   userID,
 		"email": email,
 		"role":  role,
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(24 * time.Hour).Unix(),
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal claims: %w", err)
+	}
 	payloadEnc := base64.RawURLEncoding.EncodeToString(payload)
 	sig := hmacSign(secret, header+"."+payloadEnc)
 	return header + "." + payloadEnc + "." + sig, nil
