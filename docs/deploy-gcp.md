@@ -11,12 +11,15 @@ Serverless containers — scales to zero when idle, auto-scales under load, full
 - `gcloud` CLI installed and authenticated (`gcloud auth login`)
 - A GCP project with billing enabled
 
+Enable all required APIs, including `servicenetworking` (required for Cloud SQL private IP):
+
 ```bash
 gcloud services enable \
   run.googleapis.com \
   sqladmin.googleapis.com \
   secretmanager.googleapis.com \
-  vpcaccess.googleapis.com
+  vpcaccess.googleapis.com \
+  servicenetworking.googleapis.com
 ```
 
 ---
@@ -46,7 +49,32 @@ echo -n "$DB_PASSWORD" | gcloud secrets create cipher-db-password --data-file=- 
 
 ---
 
-## 3. Create Cloud SQL PostgreSQL
+## 3. Set up private service access for Cloud SQL
+
+Cloud SQL private IP requires VPC peering between your VPC and Google's service network. This only needs to be done once per project.
+
+```bash
+# Allocate an IP range for Google-managed services
+gcloud compute addresses create google-managed-services-default \
+  --global \
+  --purpose=VPC_PEERING \
+  --prefix-length=16 \
+  --network=default \
+  --project=$PROJECT_ID
+
+# Create the VPC peering connection
+gcloud services vpc-peerings connect \
+  --service=servicenetworking.googleapis.com \
+  --ranges=google-managed-services-default \
+  --network=default \
+  --project=$PROJECT_ID
+```
+
+> If your project already has private service access configured, skip this step. The `gcloud sql instances create` command will error with a VPC peering message if it's missing.
+
+---
+
+## 4. Create Cloud SQL PostgreSQL
 
 ```bash
 gcloud sql instances create $SQL_INSTANCE \
@@ -66,7 +94,7 @@ echo "DB_PRIVATE_IP=$DB_PRIVATE_IP"
 
 ---
 
-## 4. VPC connector
+## 5. Create a VPC connector
 
 Cloud Run needs a VPC connector to reach the Cloud SQL private IP.
 
@@ -79,7 +107,7 @@ gcloud compute networks vpc-access connectors create cipher-connector \
 
 ---
 
-## 5. Grant Secret Manager access to Cloud Run
+## 6. Grant Secret Manager access to Cloud Run
 
 ```bash
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
@@ -94,7 +122,7 @@ done
 
 ---
 
-## 6. Deploy the API / dashboard (port 8080)
+## 7. Deploy the API / dashboard (port 8080)
 
 ```bash
 DB_URL="postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require"
@@ -118,7 +146,7 @@ echo "API URL: $API_URL"
 
 ---
 
-## 7. Deploy the package proxy (port 7070)
+## 8. Deploy the package proxy (port 7070)
 
 Cloud Run only exposes one port per service, so the proxy runs as a second service targeting port 7070. Both use the same image and share the same database.
 
@@ -142,7 +170,7 @@ echo "Proxy URL: $PROXY_URL"
 
 ---
 
-## 8. Verify
+## 9. Verify
 
 ```bash
 curl $API_URL/api/v1/health
@@ -151,7 +179,7 @@ curl $API_URL/api/v1/health
 
 ---
 
-## 9. Bootstrap the first admin user
+## 10. Bootstrap the first admin user
 
 ```bash
 curl -X POST $API_URL/api/v1/users \
@@ -163,17 +191,11 @@ This endpoint is open when the users table is empty; the first user is forced to
 
 ---
 
-## 10. Configure dev machines
+## 11. Configure dev machines
 
-Cloud Run provides HTTPS by default. Configure pip and npm to use the proxy service URL:
+**Option A — centralized proxy (no cipher-shield install required on each machine):**
 
-```bash
-export SHIELD_SERVER_URL=$API_URL
-export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
-cipher-shield proxy start --proxy-url $PROXY_URL
-```
-
-Or configure pip/npm manually:
+Configure pip and npm to use the Cloud Run proxy URL directly. Cloud Run provides HTTPS by default.
 
 ```bash
 # pip
@@ -183,11 +205,23 @@ pip config set global.index-url $PROXY_URL/simple/
 npm config set registry $PROXY_URL/
 ```
 
+All installs will be intercepted and scanned at the cloud proxy. Results appear in the dashboard at `$API_URL`.
+
+**Option B — local proxy (cipher-shield installed on each developer's machine):**
+
+```bash
+export SHIELD_SERVER_URL=$API_URL
+export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
+cipher-shield proxy start
+```
+
+This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. If using this option, the proxy Cloud Run service (step 8) is optional.
+
 ---
 
 ## Scaling behavior
 
-Both services scale 1–4 instances based on request concurrency (Cloud Run default). Set `--min-instances=0` on either service to enable scale-to-zero. Keep the proxy at `--min-instances=1` if developers expect immediate installs without cold start delay.
+Both services scale 1–4 instances based on request concurrency. Set `--min-instances=0` to enable scale-to-zero. Keep the proxy at `--min-instances=1` if you don't want cold start delays on `npm install` / `pip install`.
 
 ```bash
 gcloud run services update cipher-shield-api \
@@ -199,11 +233,11 @@ gcloud run services update cipher-shield-api \
 ## Teardown
 
 ```bash
-gcloud run services delete cipher-shield-api  --region=$REGION
-gcloud run services delete cipher-shield-proxy --region=$REGION
-gcloud sql instances delete $SQL_INSTANCE
-gcloud compute networks vpc-access connectors delete cipher-connector --region=$REGION
-gcloud secrets delete cipher-jwt-secret
-gcloud secrets delete cipher-proxy-token
-gcloud secrets delete cipher-db-password
+gcloud run services delete cipher-shield-api  --region=$REGION -q
+gcloud run services delete cipher-shield-proxy --region=$REGION -q
+gcloud sql instances delete $SQL_INSTANCE -q
+gcloud compute networks vpc-access connectors delete cipher-connector --region=$REGION -q
+gcloud secrets delete cipher-jwt-secret -q
+gcloud secrets delete cipher-proxy-token -q
+gcloud secrets delete cipher-db-password -q
 ```

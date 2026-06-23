@@ -9,7 +9,7 @@ Managed containers — no VMs to manage, scales to zero when idle, auto-restarts
 ## Prerequisites
 
 - Azure CLI installed and authenticated (`az login`)
-- An Azure subscription with an active resource group
+- An Azure subscription
 
 ---
 
@@ -34,22 +34,12 @@ az group create --name $RG --location $LOCATION
 
 ---
 
-## 3. Store secrets in Azure Key Vault
+## 3. Generate secrets
 
 ```bash
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 16)
-
-az keyvault create --name cipher-shield-kv \
-  --resource-group $RG --location $LOCATION
-
-az keyvault secret set --vault-name cipher-shield-kv \
-  --name jwt-secret --value "$JWT_SECRET"
-az keyvault secret set --vault-name cipher-shield-kv \
-  --name proxy-token --value "$PROXY_TOKEN"
-az keyvault secret set --vault-name cipher-shield-kv \
-  --name db-password --value "$DB_PASSWORD"
 ```
 
 ---
@@ -80,6 +70,8 @@ DB_HOST=$(az postgres flexible-server show \
 echo "DB_HOST=$DB_HOST"
 ```
 
+> `--public-access 0.0.0.0` allows connections from any Azure service. For production, use VNet integration to restrict access to only your Container Apps environment.
+
 ---
 
 ## 5. Create the Container Apps environment
@@ -95,6 +87,8 @@ az containerapp env create \
 
 ## 6. Deploy the API / dashboard (port 8080)
 
+Secrets are stored in Container Apps' encrypted secret store (not as plain environment variables):
+
 ```bash
 DB_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
 
@@ -109,11 +103,15 @@ az containerapp create \
   --scale-rule-name cpu-rule \
   --scale-rule-type cpu \
   --scale-rule-metadata type=Utilization value=60 \
+  --secrets \
+    "jwt-secret=${JWT_SECRET}" \
+    "proxy-token=${PROXY_TOKEN}" \
+    "db-url=${DB_URL}" \
   --env-vars \
     SHIELD_MODE=enforce \
-    "DATABASE_URL=${DB_URL}" \
-    "SHIELD_JWT_SECRET=${JWT_SECRET}" \
-    "SHIELD_PROXY_TOKEN=${PROXY_TOKEN}"
+    SHIELD_JWT_SECRET=secretref:jwt-secret \
+    SHIELD_PROXY_TOKEN=secretref:proxy-token \
+    DATABASE_URL=secretref:db-url
 
 API_URL=$(az containerapp show \
   --name cipher-shield-api --resource-group $RG \
@@ -125,6 +123,8 @@ echo "API URL: https://$API_URL"
 
 ## 7. Deploy the package proxy (port 7070)
 
+The server binary starts both the API (8080) and proxy (7070) automatically. Deploying a second Container App targeting port 7070 gives your team a centralized enforcement point — developers configure pip and npm to point at this URL rather than running cipher-shield locally.
+
 ```bash
 az containerapp create \
   --name cipher-shield-proxy \
@@ -133,16 +133,19 @@ az containerapp create \
   --image ghcr.io/cipher-oss/cipher-shield:latest \
   --target-port 7070 \
   --ingress external \
-  --transport http \
   --min-replicas 1 --max-replicas 4 \
   --scale-rule-name cpu-rule \
   --scale-rule-type cpu \
   --scale-rule-metadata type=Utilization value=60 \
+  --secrets \
+    "jwt-secret=${JWT_SECRET}" \
+    "proxy-token=${PROXY_TOKEN}" \
+    "db-url=${DB_URL}" \
   --env-vars \
     SHIELD_MODE=enforce \
-    "DATABASE_URL=${DB_URL}" \
-    "SHIELD_JWT_SECRET=${JWT_SECRET}" \
-    "SHIELD_PROXY_TOKEN=${PROXY_TOKEN}"
+    SHIELD_JWT_SECRET=secretref:jwt-secret \
+    SHIELD_PROXY_TOKEN=secretref:proxy-token \
+    DATABASE_URL=secretref:db-url
 
 PROXY_URL=$(az containerapp show \
   --name cipher-shield-proxy --resource-group $RG \
@@ -175,15 +178,9 @@ This endpoint is open when the users table is empty; the first user is forced to
 
 ## 10. Configure dev machines
 
-Azure Container Apps provides HTTPS by default. Configure pip and npm to use the proxy URL:
+**Option A — centralized proxy (no cipher-shield install required on each machine):**
 
-```bash
-export SHIELD_SERVER_URL=https://$API_URL
-export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
-cipher-shield proxy start --proxy-url https://$PROXY_URL
-```
-
-Or configure pip/npm manually:
+Configure pip and npm on each developer's machine to use the cloud proxy URL directly:
 
 ```bash
 # pip
@@ -193,11 +190,23 @@ pip config set global.index-url https://$PROXY_URL/simple/
 npm config set registry https://$PROXY_URL/
 ```
 
+All installs will be intercepted and scanned at the cloud proxy. Results appear in the dashboard at `https://$API_URL`.
+
+**Option B — local proxy (cipher-shield installed on each developer's machine):**
+
+```bash
+export SHIELD_SERVER_URL=https://$API_URL
+export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
+cipher-shield proxy start
+```
+
+This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. No need to deploy the proxy Container App (step 7) if using this option.
+
 ---
 
 ## Scaling behavior
 
-Both Container Apps scale from 1 to 4 replicas based on CPU utilization (60% threshold). The API app scales independently of the proxy app. You can adjust `--min-replicas` and `--max-replicas` at any time:
+Both Container Apps scale from 1 to 4 replicas at 60% CPU. You can adjust at any time:
 
 ```bash
 az containerapp update \
@@ -207,7 +216,7 @@ az containerapp update \
   --max-replicas 10
 ```
 
-Setting `--min-replicas 0` enables scale-to-zero for the API (useful for dev environments). Keep the proxy at `--min-replicas 1` so it's always ready to intercept installs.
+Setting `--min-replicas 0` enables scale-to-zero (useful for dev environments). Keep the proxy at `--min-replicas 1` so installs aren't delayed by cold start.
 
 ---
 
@@ -218,6 +227,5 @@ az containerapp delete --name cipher-shield-api --resource-group $RG --yes
 az containerapp delete --name cipher-shield-proxy --resource-group $RG --yes
 az containerapp env delete --name $ACA_ENV --resource-group $RG --yes
 az postgres flexible-server delete --resource-group $RG --name $DB_SERVER --yes
-az keyvault delete --name cipher-shield-kv --resource-group $RG
 az group delete --name $RG --yes
 ```

@@ -88,7 +88,7 @@ aws rds create-db-subnet-group --region $AWS_REGION \
 aws rds create-db-instance --region $AWS_REGION \
   --db-instance-identifier $APP-pg \
   --db-instance-class db.t4g.micro \
-  --engine postgres --engine-version 16 \
+  --engine postgres --engine-version 16.3 \
   --master-username $DB_USER \
   --master-user-password "$DB_PASSWORD" \
   --db-name $DB_NAME \
@@ -228,6 +228,9 @@ aws application-autoscaling put-scaling-policy \
 ## 9. Get the public IP and verify
 
 ```bash
+# Wait until the service has a running task (image pull + startup, ~60–90s)
+aws ecs wait services-stable --region $AWS_REGION --cluster $APP --services $APP
+
 TASK_ARN=$(aws ecs list-tasks --region $AWS_REGION \
   --cluster $APP --service-name $APP \
   --query 'taskArns[0]' --output text)
