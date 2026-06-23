@@ -1,208 +1,253 @@
 # Deploying cipher-shield on AWS
 
-**Architecture:** EC2 (t3.micro) + RDS PostgreSQL (db.t3.micro) inside a VPC.  
-**Estimated cost:** ~$25–35/month.
+**Architecture:** ECS Fargate + RDS PostgreSQL.  
+Managed containers — no EC2 to patch, auto-restarts on crash, scales 1–4 tasks at 60% CPU.  
+**Estimated cost:** ~$35–60/month at low traffic.
 
 ---
 
 ## Prerequisites
 
-- AWS CLI installed and configured (`aws configure`)
-- An AWS account with permissions to create EC2, RDS, VPC, and security group resources
-- A domain or IP to point your team at (or use the EC2 public IP directly)
+- AWS CLI installed and authenticated (`aws configure`)
+- Permissions to create ECS, RDS, IAM, Secrets Manager, and VPC resources
 
 ---
 
-## 1. Generate secrets
-
-Run these locally and save the output — you'll need them in later steps.
+## 1. Set variables
 
 ```bash
-export JWT_SECRET=$(openssl rand -hex 32)
-export PROXY_TOKEN=$(openssl rand -hex 32)
-export DB_PASSWORD=$(openssl rand -hex 16)
-
-echo "JWT_SECRET=$JWT_SECRET"
-echo "PROXY_TOKEN=$PROXY_TOKEN"
-echo "DB_PASSWORD=$DB_PASSWORD"
+export AWS_REGION=us-east-1
+export APP=cipher-shield
+export IMAGE=ghcr.io/cipher-oss/cipher-shield:latest
+export DB_NAME=shield
+export DB_USER=shieldadmin
 ```
 
 ---
 
-## 2. Create a VPC and subnets
-
-If you already have a VPC you want to use, skip to step 3.
+## 2. Store secrets in Secrets Manager
 
 ```bash
-# Create VPC
-VPC_ID=$(aws ec2 create-vpc --cidr-block 10.0.0.0/16 \
-  --query 'Vpc.VpcId' --output text)
-aws ec2 modify-vpc-attribute --vpc-id $VPC_ID --enable-dns-hostnames
+JWT_SECRET=$(openssl rand -hex 32)
+PROXY_TOKEN=$(openssl rand -hex 32)
+DB_PASSWORD=$(openssl rand -hex 16)
 
-# Public subnet (EC2)
-SUBNET_PUBLIC=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.1.0/24 --availability-zone us-east-1a \
-  --query 'Subnet.SubnetId' --output text)
-
-# Private subnets (RDS requires two AZs)
-SUBNET_PRIV_A=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.2.0/24 --availability-zone us-east-1a \
-  --query 'Subnet.SubnetId' --output text)
-SUBNET_PRIV_B=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.3.0/24 --availability-zone us-east-1b \
-  --query 'Subnet.SubnetId' --output text)
-
-# Internet gateway
-IGW=$(aws ec2 create-internet-gateway --query 'InternetGateway.InternetGatewayId' --output text)
-aws ec2 attach-internet-gateway --vpc-id $VPC_ID --internet-gateway-id $IGW
-
-# Route table for public subnet
-RT=$(aws ec2 create-route-table --vpc-id $VPC_ID \
-  --query 'RouteTable.RouteTableId' --output text)
-aws ec2 create-route --route-table-id $RT --destination-cidr-block 0.0.0.0/0 --gateway-id $IGW
-aws ec2 associate-route-table --route-table-id $RT --subnet-id $SUBNET_PUBLIC
+aws secretsmanager create-secret --region $AWS_REGION \
+  --name $APP/jwt-secret --secret-string "$JWT_SECRET"
+aws secretsmanager create-secret --region $AWS_REGION \
+  --name $APP/proxy-token --secret-string "$PROXY_TOKEN"
 ```
 
 ---
 
-## 3. Create security groups
+## 3. Networking — default VPC
 
 ```bash
-# EC2 security group
-SG_EC2=$(aws ec2 create-security-group \
-  --group-name cipher-shield-ec2 \
-  --description "cipher-shield server" \
-  --vpc-id $VPC_ID \
-  --query 'GroupId' --output text)
+VPC_ID=$(aws ec2 describe-vpcs --region $AWS_REGION \
+  --filters Name=isDefault,Values=true \
+  --query 'Vpcs[0].VpcId' --output text)
 
-# SSH (restrict to your IP in production)
-aws ec2 authorize-security-group-ingress --group-id $SG_EC2 \
-  --protocol tcp --port 22 --cidr 0.0.0.0/0
-
-# Dashboard + API — open to team (restrict to your office/VPN CIDR in production)
-aws ec2 authorize-security-group-ingress --group-id $SG_EC2 \
-  --protocol tcp --port 8080 --cidr 0.0.0.0/0
-
-# Registry proxy — open to dev machines
-aws ec2 authorize-security-group-ingress --group-id $SG_EC2 \
-  --protocol tcp --port 7070 --cidr 0.0.0.0/0
-
-# RDS security group (only reachable from EC2)
-SG_RDS=$(aws ec2 create-security-group \
-  --group-name cipher-shield-rds \
-  --description "cipher-shield postgres" \
-  --vpc-id $VPC_ID \
-  --query 'GroupId' --output text)
-
-aws ec2 authorize-security-group-ingress --group-id $SG_RDS \
-  --protocol tcp --port 5432 --source-group $SG_EC2
+# Grab the first two public subnets
+SUBNETS=$(aws ec2 describe-subnets --region $AWS_REGION \
+  --filters Name=vpc-id,Values=$VPC_ID \
+  --query 'Subnets[0:2].SubnetId' --output text | tr '\t' ',')
 ```
 
 ---
 
-## 4. Create RDS PostgreSQL instance
+## 4. Security groups
 
 ```bash
-# Subnet group
-aws rds create-db-subnet-group \
-  --db-subnet-group-name cipher-shield-subnets \
-  --db-subnet-group-description "cipher-shield" \
-  --subnet-ids $SUBNET_PRIV_A $SUBNET_PRIV_B
+# Task — accepts API (8080) and proxy (7070) traffic
+TASK_SG=$(aws ec2 create-security-group --region $AWS_REGION \
+  --group-name $APP-task --description "$APP Fargate task" \
+  --vpc-id $VPC_ID --query GroupId --output text)
+aws ec2 authorize-security-group-ingress --region $AWS_REGION \
+  --group-id $TASK_SG --protocol tcp --port 8080 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --region $AWS_REGION \
+  --group-id $TASK_SG --protocol tcp --port 7070 --cidr 0.0.0.0/0
 
-# Database (takes ~5 minutes)
-aws rds create-db-instance \
-  --db-instance-identifier cipher-shield-db \
-  --db-instance-class db.t3.micro \
-  --engine postgres \
-  --engine-version 16 \
-  --master-username shield \
+# Database — only reachable from the Fargate task
+DB_SG=$(aws ec2 create-security-group --region $AWS_REGION \
+  --group-name $APP-db --description "$APP RDS" \
+  --vpc-id $VPC_ID --query GroupId --output text)
+aws ec2 authorize-security-group-ingress --region $AWS_REGION \
+  --group-id $DB_SG --protocol tcp --port 5432 --source-group $TASK_SG
+```
+
+---
+
+## 5. Create RDS PostgreSQL
+
+```bash
+aws rds create-db-subnet-group --region $AWS_REGION \
+  --db-subnet-group-name $APP-subnets \
+  --db-subnet-group-description "$APP DB subnets" \
+  --subnet-ids $(echo $SUBNETS | tr ',' ' ')
+
+aws rds create-db-instance --region $AWS_REGION \
+  --db-instance-identifier $APP-pg \
+  --db-instance-class db.t4g.micro \
+  --engine postgres --engine-version 16 \
+  --master-username $DB_USER \
   --master-user-password "$DB_PASSWORD" \
-  --db-name shield \
-  --db-subnet-group-name cipher-shield-subnets \
-  --vpc-security-group-ids $SG_RDS \
+  --db-name $DB_NAME \
+  --vpc-security-group-ids $DB_SG \
+  --db-subnet-group-name $APP-subnets \
   --no-publicly-accessible \
-  --storage-type gp2 \
   --allocated-storage 20
 
-# Wait for it to be available
-aws rds wait db-instance-available --db-instance-identifier cipher-shield-db
+# ~5 minutes
+aws rds wait db-instance-available --region $AWS_REGION \
+  --db-instance-identifier $APP-pg
 
-# Get the endpoint
-DB_HOST=$(aws rds describe-db-instances \
-  --db-instance-identifier cipher-shield-db \
+DB_HOST=$(aws rds describe-db-instances --region $AWS_REGION \
+  --db-instance-identifier $APP-pg \
   --query 'DBInstances[0].Endpoint.Address' --output text)
-echo "DB_HOST=$DB_HOST"
+
+aws secretsmanager create-secret --region $AWS_REGION \
+  --name $APP/db-url \
+  --secret-string "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
 ```
 
 ---
 
-## 5. Launch EC2 instance
+## 6. IAM execution role
 
 ```bash
-# Get latest Amazon Linux 2023 AMI
-AMI=$(aws ec2 describe-images \
-  --owners amazon \
-  --filters "Name=name,Values=al2023-ami-*-x86_64" \
-            "Name=state,Values=available" \
-  --query 'sort_by(Images, &CreationDate)[-1].ImageId' \
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+aws iam create-role --role-name $APP-exec-role \
+  --assume-role-policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]
+  }'
+
+aws iam attach-role-policy --role-name $APP-exec-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+aws iam put-role-policy --role-name $APP-exec-role \
+  --policy-name secrets-read \
+  --policy-document "{
+    \"Version\":\"2012-10-17\",
+    \"Statement\":[{
+      \"Effect\":\"Allow\",
+      \"Action\":\"secretsmanager:GetSecretValue\",
+      \"Resource\":\"arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/*\"
+    }]
+  }"
+
+ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${APP}-exec-role"
+```
+
+---
+
+## 7. ECS cluster and task definition
+
+```bash
+aws ecs create-cluster --region $AWS_REGION --cluster-name $APP
+
+aws logs create-log-group --region $AWS_REGION --log-group-name /ecs/$APP
+
+cat > /tmp/task.json << EOF
+{
+  "family": "$APP",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512", "memory": "1024",
+  "executionRoleArn": "${ROLE_ARN}",
+  "taskRoleArn": "${ROLE_ARN}",
+  "containerDefinitions": [{
+    "name": "$APP",
+    "image": "${IMAGE}",
+    "portMappings": [
+      {"containerPort": 8080},
+      {"containerPort": 7070}
+    ],
+    "environment": [
+      {"name": "SHIELD_MODE", "value": "enforce"}
+    ],
+    "secrets": [
+      {"name": "SHIELD_JWT_SECRET",  "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/jwt-secret"},
+      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/proxy-token"},
+      {"name": "DATABASE_URL",       "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/db-url"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/${APP}",
+        "awslogs-region": "${AWS_REGION}",
+        "awslogs-stream-prefix": "ecs"
+      }
+    }
+  }]
+}
+EOF
+
+aws ecs register-task-definition --region $AWS_REGION --cli-input-json file:///tmp/task.json
+```
+
+---
+
+## 8. Deploy Fargate service with auto-scaling
+
+```bash
+aws ecs create-service --region $AWS_REGION \
+  --cluster $APP --service-name $APP \
+  --task-definition $APP --desired-count 1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={
+    subnets=[${SUBNETS}],
+    securityGroups=[${TASK_SG}],
+    assignPublicIp=ENABLED
+  }"
+
+# Scale 1–4 tasks; add a task when average CPU exceeds 60%
+aws application-autoscaling register-scalable-target \
+  --service-namespace ecs \
+  --resource-id service/$APP/$APP \
+  --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 1 --max-capacity 4
+
+aws application-autoscaling put-scaling-policy \
+  --service-namespace ecs \
+  --resource-id service/$APP/$APP \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-name cpu-scaling \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration '{
+    "TargetValue": 60.0,
+    "PredefinedMetricSpecification": {"PredefinedMetricType": "ECSServiceAverageCPUUtilization"},
+    "ScaleInCooldown": 60,
+    "ScaleOutCooldown": 30
+  }'
+```
+
+---
+
+## 9. Get the public IP and verify
+
+```bash
+TASK_ARN=$(aws ecs list-tasks --region $AWS_REGION \
+  --cluster $APP --service-name $APP \
+  --query 'taskArns[0]' --output text)
+
+ENI=$(aws ecs describe-tasks --region $AWS_REGION \
+  --cluster $APP --tasks $TASK_ARN \
+  --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
   --output text)
 
-# Create key pair (skip if you already have one)
-aws ec2 create-key-pair --key-name cipher-shield \
-  --query 'KeyMaterial' --output text > ~/.ssh/cipher-shield.pem
-chmod 400 ~/.ssh/cipher-shield.pem
+SERVER_IP=$(aws ec2 describe-network-interfaces --region $AWS_REGION \
+  --network-interface-ids $ENI \
+  --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
 
-# User data script — installs Docker and starts cipher-shield
-cat > /tmp/userdata.sh << USERDATA
-#!/bin/bash
-yum install -y docker
-systemctl enable --now docker
-
-docker run -d \
-  --name cipher-shield \
-  --restart unless-stopped \
-  -p 7070:7070 \
-  -p 8080:8080 \
-  -e SHIELD_JWT_SECRET="${JWT_SECRET}" \
-  -e SHIELD_PROXY_TOKEN="${PROXY_TOKEN}" \
-  -e SHIELD_MODE=enforce \
-  -e DATABASE_URL="postgres://shield:${DB_PASSWORD}@${DB_HOST}:5432/shield?sslmode=require" \
-  ghcr.io/cipher-oss/cipher-shield:latest
-USERDATA
-
-# Launch instance
-INSTANCE_ID=$(aws ec2 run-instances \
-  --image-id $AMI \
-  --instance-type t3.micro \
-  --key-name cipher-shield \
-  --security-group-ids $SG_EC2 \
-  --subnet-id $SUBNET_PUBLIC \
-  --associate-public-ip-address \
-  --user-data file:///tmp/userdata.sh \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cipher-shield}]' \
-  --query 'Instances[0].InstanceId' --output text)
-
-aws ec2 wait instance-running --instance-ids $INSTANCE_ID
-
-SERVER_IP=$(aws ec2 describe-instances \
-  --instance-ids $INSTANCE_ID \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
-echo "Server IP: $SERVER_IP"
-```
-
----
-
-## 6. Verify the server is running
-
-```bash
-# Wait ~60 seconds for Docker to pull and start the image, then:
 curl http://$SERVER_IP:8080/api/v1/health
 # {"status":"ok","version":"0.1.0"}
 ```
 
 ---
 
-## 7. Bootstrap the first admin user
+## 10. Bootstrap the first admin user
 
 ```bash
 curl -X POST http://$SERVER_IP:8080/api/v1/users \
@@ -210,45 +255,36 @@ curl -X POST http://$SERVER_IP:8080/api/v1/users \
   -d '{"email":"admin@yourcompany.com","password":"changeme","role":"admin"}'
 ```
 
-This endpoint requires no auth when the users table is empty. The first user is always created as admin. After this, `POST /api/v1/users` requires an admin JWT.
+This endpoint is open when the users table is empty; the first user is forced to `admin`. After that, it requires an admin JWT.
 
 ---
 
-## 8. Configure dev machines
+## 11. Configure dev machines
 
-On each developer's machine, set these environment variables (add to `~/.zshrc` or `~/.bashrc`):
+On each developer's machine:
 
 ```bash
 export SHIELD_SERVER_URL=http://$SERVER_IP:8080
-export SHIELD_PROXY_TOKEN=<your PROXY_TOKEN from step 1>
-```
-
-Then start the proxy:
-
-```bash
+export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
 cipher-shield proxy start
 ```
 
 ---
 
-## 9. (Optional) Put a load balancer in front
+## (Optional) HTTPS
 
-For HTTPS and a stable DNS name, add an Application Load Balancer:
-
-```bash
-# Create ALB targeting port 8080 (dashboard/API)
-# The proxy port 7070 stays HTTP — use a NLB or VPN for that in production
-```
-
-Or use Amazon Certificate Manager (ACM) + Route 53 to give the server a proper domain with TLS.
+Add an Application Load Balancer targeting port 8080 with an ACM certificate for TLS. The proxy port 7070 can remain direct HTTP (or restrict it to your VPN CIDR in the task security group).
 
 ---
 
 ## Teardown
 
 ```bash
-aws ec2 terminate-instances --instance-ids $INSTANCE_ID
-aws rds delete-db-instance --db-instance-identifier cipher-shield-db --skip-final-snapshot
-aws ec2 delete-security-group --group-id $SG_EC2
-aws ec2 delete-security-group --group-id $SG_RDS
+aws ecs update-service --region $AWS_REGION --cluster $APP --service $APP --desired-count 0
+aws ecs delete-service --region $AWS_REGION --cluster $APP --service $APP
+aws ecs delete-cluster --region $AWS_REGION --cluster $APP
+aws rds delete-db-instance --region $AWS_REGION \
+  --db-instance-identifier $APP-pg --skip-final-snapshot
+aws ec2 delete-security-group --region $AWS_REGION --group-id $TASK_SG
+aws ec2 delete-security-group --region $AWS_REGION --group-id $DB_SG
 ```
