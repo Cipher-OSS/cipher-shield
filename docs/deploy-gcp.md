@@ -1,7 +1,8 @@
 # Deploying cipher-shield on GCP
 
-**Architecture:** Cloud Run + Cloud SQL PostgreSQL + VPC connector.  
-**Estimated cost:** ~$15–25/month (Cloud Run scales to zero when idle).
+**Architecture:** Cloud Run + Cloud SQL PostgreSQL.  
+Serverless containers — scales to zero when idle, auto-scales under load, fully managed.  
+**Estimated cost:** ~$15–30/month (Cloud Run billing is per-request when scaled to zero).
 
 ---
 
@@ -9,7 +10,6 @@
 
 - `gcloud` CLI installed and authenticated (`gcloud auth login`)
 - A GCP project with billing enabled
-- APIs enabled: Cloud Run, Cloud SQL, Secret Manager, VPC Access
 
 ```bash
 gcloud services enable \
@@ -21,71 +21,58 @@ gcloud services enable \
 
 ---
 
-## 1. Set project variables
+## 1. Set variables
 
 ```bash
 export PROJECT_ID=$(gcloud config get-value project)
 export REGION=us-central1
-export INSTANCE_NAME=cipher-shield-db
+export SQL_INSTANCE=cipher-shield-pg
+export IMAGE=ghcr.io/cipher-oss/cipher-shield:latest
 ```
 
 ---
 
-## 2. Generate secrets
+## 2. Store secrets in Secret Manager
 
 ```bash
-export JWT_SECRET=$(openssl rand -hex 32)
-export PROXY_TOKEN=$(openssl rand -hex 32)
-export DB_PASSWORD=$(openssl rand -hex 16)
+JWT_SECRET=$(openssl rand -hex 32)
+PROXY_TOKEN=$(openssl rand -hex 32)
+DB_PASSWORD=$(openssl rand -hex 16)
 
-echo "JWT_SECRET=$JWT_SECRET"
-echo "PROXY_TOKEN=$PROXY_TOKEN"
-echo "DB_PASSWORD=$DB_PASSWORD"
-```
-
-Store them in Secret Manager so they never appear in plain text in Cloud Run config:
-
-```bash
-echo -n "$JWT_SECRET"   | gcloud secrets create cipher-jwt-secret   --data-file=-
-echo -n "$PROXY_TOKEN"  | gcloud secrets create cipher-proxy-token  --data-file=-
-echo -n "$DB_PASSWORD"  | gcloud secrets create cipher-db-password  --data-file=-
+echo -n "$JWT_SECRET"  | gcloud secrets create cipher-jwt-secret  --data-file=- --project=$PROJECT_ID
+echo -n "$PROXY_TOKEN" | gcloud secrets create cipher-proxy-token --data-file=- --project=$PROJECT_ID
+echo -n "$DB_PASSWORD" | gcloud secrets create cipher-db-password --data-file=- --project=$PROJECT_ID
 ```
 
 ---
 
-## 3. Create Cloud SQL PostgreSQL instance
+## 3. Create Cloud SQL PostgreSQL
 
 ```bash
-gcloud sql instances create $INSTANCE_NAME \
+gcloud sql instances create $SQL_INSTANCE \
   --database-version=POSTGRES_16 \
   --tier=db-f1-micro \
   --region=$REGION \
   --no-assign-ip \
   --network=default
 
-# Create database and user
-gcloud sql databases create shield --instance=$INSTANCE_NAME
+gcloud sql databases create shield --instance=$SQL_INSTANCE
+gcloud sql users create shield --instance=$SQL_INSTANCE --password="$DB_PASSWORD"
 
-gcloud sql users create shield \
-  --instance=$INSTANCE_NAME \
-  --password="$DB_PASSWORD"
-
-# Get the private IP
-DB_PRIVATE_IP=$(gcloud sql instances describe $INSTANCE_NAME \
+DB_PRIVATE_IP=$(gcloud sql instances describe $SQL_INSTANCE \
   --format='value(ipAddresses[0].ipAddress)')
 echo "DB_PRIVATE_IP=$DB_PRIVATE_IP"
 ```
 
 ---
 
-## 4. Create a VPC connector
+## 4. VPC connector
 
 Cloud Run needs a VPC connector to reach the Cloud SQL private IP.
 
 ```bash
 gcloud compute networks vpc-access connectors create cipher-connector \
   --region=$REGION \
-  --subnet-project=$PROJECT_ID \
   --network=default \
   --range=10.8.0.0/28
 ```
@@ -95,113 +82,126 @@ gcloud compute networks vpc-access connectors create cipher-connector \
 ## 5. Grant Secret Manager access to Cloud Run
 
 ```bash
-# Get the Cloud Run service account
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-CLOUD_RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-gcloud secrets add-iam-policy-binding cipher-jwt-secret \
-  --member="serviceAccount:$CLOUD_RUN_SA" --role="roles/secretmanager.secretAccessor"
-
-gcloud secrets add-iam-policy-binding cipher-proxy-token \
-  --member="serviceAccount:$CLOUD_RUN_SA" --role="roles/secretmanager.secretAccessor"
-
-gcloud secrets add-iam-policy-binding cipher-db-password \
-  --member="serviceAccount:$CLOUD_RUN_SA" --role="roles/secretmanager.secretAccessor"
+for SECRET in cipher-jwt-secret cipher-proxy-token cipher-db-password; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:$SA" \
+    --role="roles/secretmanager.secretAccessor"
+done
 ```
 
 ---
 
-## 6. Deploy to Cloud Run
-
-> **Note:** Cloud Run only exposes one port (8080 — the dashboard/API). The proxy port 7070 requires a separate deployment or a VM. See the note at the bottom.
+## 6. Deploy the API / dashboard (port 8080)
 
 ```bash
-gcloud run deploy cipher-shield \
-  --image=ghcr.io/cipher-oss/cipher-shield:latest \
+DB_URL="postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require"
+
+gcloud run deploy cipher-shield-api \
+  --image=$IMAGE \
   --region=$REGION \
-  --platform=managed \
   --port=8080 \
   --vpc-connector=cipher-connector \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require" \
+  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=${DB_URL}" \
   --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
   --allow-unauthenticated \
-  --min-instances=0 \
-  --max-instances=2
+  --min-instances=1 \
+  --max-instances=4
 
-# Get the service URL
-SERVICE_URL=$(gcloud run services describe cipher-shield \
+API_URL=$(gcloud run services describe cipher-shield-api \
   --region=$REGION --format='value(status.url)')
-echo "Service URL: $SERVICE_URL"
+echo "API URL: $API_URL"
 ```
 
 ---
 
-## 7. Verify
+## 7. Deploy the package proxy (port 7070)
+
+Cloud Run only exposes one port per service, so the proxy runs as a second service targeting port 7070. Both use the same image and share the same database.
 
 ```bash
-curl $SERVICE_URL/api/v1/health
+gcloud run deploy cipher-shield-proxy \
+  --image=$IMAGE \
+  --region=$REGION \
+  --port=7070 \
+  --vpc-connector=cipher-connector \
+  --vpc-egress=private-ranges-only \
+  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=${DB_URL}" \
+  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
+  --allow-unauthenticated \
+  --min-instances=1 \
+  --max-instances=4
+
+PROXY_URL=$(gcloud run services describe cipher-shield-proxy \
+  --region=$REGION --format='value(status.url)')
+echo "Proxy URL: $PROXY_URL"
+```
+
+---
+
+## 8. Verify
+
+```bash
+curl $API_URL/api/v1/health
 # {"status":"ok","version":"0.1.0"}
 ```
 
 ---
 
-## 8. Bootstrap the first admin user
+## 9. Bootstrap the first admin user
 
 ```bash
-curl -X POST $SERVICE_URL/api/v1/users \
+curl -X POST $API_URL/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@yourcompany.com","password":"changeme","role":"admin"}'
 ```
 
+This endpoint is open when the users table is empty; the first user is forced to `admin`.
+
 ---
 
-## 9. Configure dev machines
+## 10. Configure dev machines
+
+Cloud Run provides HTTPS by default. Configure pip and npm to use the proxy service URL:
 
 ```bash
-export SHIELD_SERVER_URL=$SERVICE_URL
-export SHIELD_PROXY_TOKEN=<your PROXY_TOKEN from step 2>
+export SHIELD_SERVER_URL=$API_URL
+export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
+cipher-shield proxy start --proxy-url $PROXY_URL
+```
 
-cipher-shield proxy start
+Or configure pip/npm manually:
+
+```bash
+# pip
+pip config set global.index-url $PROXY_URL/simple/
+
+# npm
+npm config set registry $PROXY_URL/
 ```
 
 ---
 
-## Proxy port (7070) on GCP
+## Scaling behavior
 
-Cloud Run only supports a single HTTP port, so the registry proxy (7070) needs a separate VM if dev machines need to route `npm install` / `pip install` through it in real time.
-
-**Option A — separate Compute Engine VM for the proxy:**
+Both services scale 1–4 instances based on request concurrency (Cloud Run default). Set `--min-instances=0` on either service to enable scale-to-zero. Keep the proxy at `--min-instances=1` if developers expect immediate installs without cold start delay.
 
 ```bash
-gcloud compute instances create cipher-proxy \
-  --zone=${REGION}-a \
-  --machine-type=e2-micro \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
-  --tags=cipher-proxy
-
-# SSH in and run the proxy container
-gcloud compute ssh cipher-proxy -- \
-  "sudo apt-get install -y docker.io && sudo docker run -d \
-    --restart unless-stopped \
-    -p 7070:7070 \
-    -e SHIELD_JWT_SECRET=$JWT_SECRET \
-    -e SHIELD_PROXY_TOKEN=$PROXY_TOKEN \
-    -e SHIELD_MODE=enforce \
-    -e DATABASE_URL=postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require \
-    ghcr.io/cipher-oss/cipher-shield:latest"
+gcloud run services update cipher-shield-api \
+  --region=$REGION --min-instances=0 --max-instances=10
 ```
-
-**Option B — use Cloud Run for API/dashboard only, run proxy locally on each dev machine** (connects to Cloud Run to report results). This is the lowest-cost option.
 
 ---
 
 ## Teardown
 
 ```bash
-gcloud run services delete cipher-shield --region=$REGION
-gcloud sql instances delete $INSTANCE_NAME
+gcloud run services delete cipher-shield-api  --region=$REGION
+gcloud run services delete cipher-shield-proxy --region=$REGION
+gcloud sql instances delete $SQL_INSTANCE
 gcloud compute networks vpc-access connectors delete cipher-connector --region=$REGION
 gcloud secrets delete cipher-jwt-secret
 gcloud secrets delete cipher-proxy-token

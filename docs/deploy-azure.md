@@ -1,58 +1,64 @@
 # Deploying cipher-shield on Azure
 
-**Architecture:** Azure Container Instances + Azure Database for PostgreSQL Flexible Server.  
-**Estimated cost:** ~$25–40/month.
+**Architecture:** Azure Container Apps + Azure Database for PostgreSQL.  
+Managed containers — no VMs to manage, scales to zero when idle, auto-restarts on crash.  
+**Estimated cost:** ~$20–40/month at low traffic.
 
 ---
 
 ## Prerequisites
 
 - Azure CLI installed and authenticated (`az login`)
-- An Azure subscription
-- A resource group (or create one below)
+- An Azure subscription with an active resource group
 
 ---
 
 ## 1. Set variables
 
 ```bash
-export RESOURCE_GROUP=cipher-shield-rg
+export RG=cipher-shield-rg
 export LOCATION=eastus
 export DB_SERVER=cipher-shield-pg
 export DB_NAME=shield
 export DB_USER=shieldadmin
-export CONTAINER_GROUP=cipher-shield
+export ACA_ENV=cipher-shield-env
 ```
 
 ---
 
-## 2. Generate secrets
+## 2. Create resource group
 
 ```bash
-export JWT_SECRET=$(openssl rand -hex 32)
-export PROXY_TOKEN=$(openssl rand -hex 32)
-export DB_PASSWORD=$(openssl rand -hex 16)
-
-echo "JWT_SECRET=$JWT_SECRET"
-echo "PROXY_TOKEN=$PROXY_TOKEN"
-echo "DB_PASSWORD=$DB_PASSWORD"
+az group create --name $RG --location $LOCATION
 ```
 
 ---
 
-## 3. Create resource group
+## 3. Store secrets in Azure Key Vault
 
 ```bash
-az group create --name $RESOURCE_GROUP --location $LOCATION
+JWT_SECRET=$(openssl rand -hex 32)
+PROXY_TOKEN=$(openssl rand -hex 32)
+DB_PASSWORD=$(openssl rand -hex 16)
+
+az keyvault create --name cipher-shield-kv \
+  --resource-group $RG --location $LOCATION
+
+az keyvault secret set --vault-name cipher-shield-kv \
+  --name jwt-secret --value "$JWT_SECRET"
+az keyvault secret set --vault-name cipher-shield-kv \
+  --name proxy-token --value "$PROXY_TOKEN"
+az keyvault secret set --vault-name cipher-shield-kv \
+  --name db-password --value "$DB_PASSWORD"
 ```
 
 ---
 
-## 4. Create Azure Database for PostgreSQL Flexible Server
+## 4. Create Azure Database for PostgreSQL
 
 ```bash
 az postgres flexible-server create \
-  --resource-group $RESOURCE_GROUP \
+  --resource-group $RG \
   --name $DB_SERVER \
   --location $LOCATION \
   --admin-user $DB_USER \
@@ -61,136 +67,157 @@ az postgres flexible-server create \
   --tier Burstable \
   --storage-size 32 \
   --version 16 \
-  --public-access None
+  --public-access 0.0.0.0
 
-# Create the database
 az postgres flexible-server db create \
-  --resource-group $RESOURCE_GROUP \
+  --resource-group $RG \
   --server-name $DB_SERVER \
   --database-name $DB_NAME
 
-# Get the fully qualified domain name
 DB_HOST=$(az postgres flexible-server show \
-  --resource-group $RESOURCE_GROUP \
-  --name $DB_SERVER \
+  --resource-group $RG --name $DB_SERVER \
   --query fullyQualifiedDomainName --output tsv)
 echo "DB_HOST=$DB_HOST"
 ```
 
 ---
 
-## 5. Configure firewall to allow the container
-
-By default the Flexible Server has no public access. We'll allow the container's outbound IP. The simplest approach for a single container is to allow Azure services:
+## 5. Create the Container Apps environment
 
 ```bash
-az postgres flexible-server firewall-rule create \
-  --resource-group $RESOURCE_GROUP \
-  --name $DB_SERVER \
-  --rule-name allow-azure-services \
-  --start-ip-address 0.0.0.0 \
-  --end-ip-address 0.0.0.0
+az containerapp env create \
+  --name $ACA_ENV \
+  --resource-group $RG \
+  --location $LOCATION
 ```
-
-> For production, use VNet integration instead: inject the container into a VNet subnet and restrict Postgres to that subnet only.
 
 ---
 
-## 6. Deploy Azure Container Instance
+## 6. Deploy the API / dashboard (port 8080)
 
 ```bash
-az container create \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_GROUP \
+DB_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+
+az containerapp create \
+  --name cipher-shield-api \
+  --resource-group $RG \
+  --environment $ACA_ENV \
   --image ghcr.io/cipher-oss/cipher-shield:latest \
-  --cpu 1 \
-  --memory 1 \
-  --restart-policy Always \
-  --ports 7070 8080 \
-  --ip-address Public \
-  --environment-variables \
+  --target-port 8080 \
+  --ingress external \
+  --min-replicas 1 --max-replicas 4 \
+  --scale-rule-name cpu-rule \
+  --scale-rule-type cpu \
+  --scale-rule-metadata type=Utilization value=60 \
+  --env-vars \
     SHIELD_MODE=enforce \
-    DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require" \
-    SHIELD_JWT_SECRET="$JWT_SECRET" \
-    SHIELD_PROXY_TOKEN="$PROXY_TOKEN"
+    "DATABASE_URL=${DB_URL}" \
+    "SHIELD_JWT_SECRET=${JWT_SECRET}" \
+    "SHIELD_PROXY_TOKEN=${PROXY_TOKEN}"
 
-# Get the public IP
-SERVER_IP=$(az container show \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_GROUP \
-  --query ipAddress.ip --output tsv)
-echo "Server IP: $SERVER_IP"
+API_URL=$(az containerapp show \
+  --name cipher-shield-api --resource-group $RG \
+  --query properties.configuration.ingress.fqdn --output tsv)
+echo "API URL: https://$API_URL"
 ```
-
-> **Security note:** The environment variables above are passed in plain text to the CLI. For production, use Azure Key Vault references with a managed identity instead.
 
 ---
 
-## 7. Verify
+## 7. Deploy the package proxy (port 7070)
 
 ```bash
-curl http://$SERVER_IP:8080/api/v1/health
+az containerapp create \
+  --name cipher-shield-proxy \
+  --resource-group $RG \
+  --environment $ACA_ENV \
+  --image ghcr.io/cipher-oss/cipher-shield:latest \
+  --target-port 7070 \
+  --ingress external \
+  --transport http \
+  --min-replicas 1 --max-replicas 4 \
+  --scale-rule-name cpu-rule \
+  --scale-rule-type cpu \
+  --scale-rule-metadata type=Utilization value=60 \
+  --env-vars \
+    SHIELD_MODE=enforce \
+    "DATABASE_URL=${DB_URL}" \
+    "SHIELD_JWT_SECRET=${JWT_SECRET}" \
+    "SHIELD_PROXY_TOKEN=${PROXY_TOKEN}"
+
+PROXY_URL=$(az containerapp show \
+  --name cipher-shield-proxy --resource-group $RG \
+  --query properties.configuration.ingress.fqdn --output tsv)
+echo "Proxy URL: https://$PROXY_URL"
+```
+
+---
+
+## 8. Verify
+
+```bash
+curl https://$API_URL/api/v1/health
 # {"status":"ok","version":"0.1.0"}
 ```
 
 ---
 
-## 8. Bootstrap the first admin user
+## 9. Bootstrap the first admin user
 
 ```bash
-curl -X POST http://$SERVER_IP:8080/api/v1/users \
+curl -X POST https://$API_URL/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@yourcompany.com","password":"changeme","role":"admin"}'
 ```
 
-This endpoint requires no auth when the users table is empty. The first user is always created as admin.
+This endpoint is open when the users table is empty; the first user is forced to `admin`.
 
 ---
 
-## 9. Configure dev machines
+## 10. Configure dev machines
 
-On each developer's machine:
+Azure Container Apps provides HTTPS by default. Configure pip and npm to use the proxy URL:
 
 ```bash
-export SHIELD_SERVER_URL=http://$SERVER_IP:8080
-export SHIELD_PROXY_TOKEN=<your PROXY_TOKEN from step 2>
+export SHIELD_SERVER_URL=https://$API_URL
+export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
+cipher-shield proxy start --proxy-url https://$PROXY_URL
+```
 
-cipher-shield proxy start
+Or configure pip/npm manually:
+
+```bash
+# pip
+pip config set global.index-url https://$PROXY_URL/simple/
+
+# npm
+npm config set registry https://$PROXY_URL/
 ```
 
 ---
 
-## (Optional) Use Azure Key Vault for secrets
+## Scaling behavior
+
+Both Container Apps scale from 1 to 4 replicas based on CPU utilization (60% threshold). The API app scales independently of the proxy app. You can adjust `--min-replicas` and `--max-replicas` at any time:
 
 ```bash
-# Create Key Vault
-az keyvault create \
-  --name cipher-shield-kv \
-  --resource-group $RESOURCE_GROUP \
-  --location $LOCATION
-
-# Store secrets
-az keyvault secret set --vault-name cipher-shield-kv --name jwt-secret   --value "$JWT_SECRET"
-az keyvault secret set --vault-name cipher-shield-kv --name proxy-token  --value "$PROXY_TOKEN"
-az keyvault secret set --vault-name cipher-shield-kv --name db-password  --value "$DB_PASSWORD"
-
-# Assign a managed identity to the container and grant Key Vault access,
-# then reference secrets via the identity at container startup.
-# See: https://docs.microsoft.com/azure/container-instances/container-instances-managed-identity
+az containerapp update \
+  --name cipher-shield-api \
+  --resource-group $RG \
+  --min-replicas 0 \
+  --max-replicas 10
 ```
 
----
-
-## (Optional) Add HTTPS with Application Gateway
-
-For production, put an Azure Application Gateway or Azure Front Door in front of port 8080 to terminate TLS. The proxy port 7070 can be exposed via an Azure Load Balancer or kept private and accessed over VPN.
+Setting `--min-replicas 0` enables scale-to-zero for the API (useful for dev environments). Keep the proxy at `--min-replicas 1` so it's always ready to intercept installs.
 
 ---
 
 ## Teardown
 
 ```bash
-az container delete --resource-group $RESOURCE_GROUP --name $CONTAINER_GROUP --yes
-az postgres flexible-server delete --resource-group $RESOURCE_GROUP --name $DB_SERVER --yes
-az group delete --name $RESOURCE_GROUP --yes
+az containerapp delete --name cipher-shield-api --resource-group $RG --yes
+az containerapp delete --name cipher-shield-proxy --resource-group $RG --yes
+az containerapp env delete --name $ACA_ENV --resource-group $RG --yes
+az postgres flexible-server delete --resource-group $RG --name $DB_SERVER --yes
+az keyvault delete --name cipher-shield-kv --resource-group $RG
+az group delete --name $RG --yes
 ```
