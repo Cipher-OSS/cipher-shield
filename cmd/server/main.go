@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/cipher-oss/cipher-shield/internal/analyzer"
@@ -147,6 +149,16 @@ func main() {
 	}
 
 	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin, expander, bl)
+
+	// Stop rate-limiter goroutines on SIGTERM / Ctrl+C.
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+		<-quit
+		log.Printf("[shutdown] signal received — stopping")
+		srv.Stop()
+		os.Exit(0)
+	}()
 
 	if *tlsCert != "" && *tlsKey != "" {
 		log.Printf("[startup] TLS enabled — API + dashboard on https://%s", *apiAddr)
