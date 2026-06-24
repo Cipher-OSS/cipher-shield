@@ -31,7 +31,7 @@ func storeKey(eco shield.Ecosystem, name, version string) string {
 	return string(eco) + ":" + name + ":" + version
 }
 
-func (m *memStore) GetCachedResult(eco shield.Ecosystem, name, version string) (*shield.ScanResult, error) {
+func (m *memStore) GetCachedResult(_ context.Context, eco shield.Ecosystem, name, version string) (*shield.ScanResult, error) {
 	r := m.cache[storeKey(eco, name, version)]
 	if r != nil {
 		now := time.Now()
@@ -42,13 +42,13 @@ func (m *memStore) GetCachedResult(eco shield.Ecosystem, name, version string) (
 	return nil, nil
 }
 
-func (m *memStore) SaveResult(r shield.ScanResult) error {
+func (m *memStore) SaveResult(_ context.Context, r shield.ScanResult) error {
 	m.saveCount++
 	m.cache[storeKey(r.Package.Ecosystem, r.Package.Name, r.Package.Version)] = &r
 	return nil
 }
 
-func (m *memStore) GetException(eco shield.Ecosystem, name, version string) (*shield.Exception, error) {
+func (m *memStore) GetException(_ context.Context, eco shield.Ecosystem, name, version string) (*shield.Exception, error) {
 	if e, ok := m.exceptions[storeKey(eco, name, version)]; ok {
 		return e, nil
 	}
@@ -59,21 +59,21 @@ func (m *memStore) GetException(eco shield.Ecosystem, name, version string) (*sh
 	return nil, nil
 }
 
-func (m *memStore) ListExceptions() ([]shield.Exception, error)              { return nil, nil }
-func (m *memStore) AddException(e shield.Exception) error                    { return nil }
-func (m *memStore) DeleteException(_ string) error                           { return nil }
-func (m *memStore) ListHistory(_ int) ([]shield.ScanResult, error)           { return nil, nil }
-func (m *memStore) CreateUser(_, _, _ string) (*shield.User, error)          { return nil, nil }
-func (m *memStore) GetUserByEmail(_ string) (*shield.User, error)            { return nil, nil }
-func (m *memStore) GetUserByID(_ string) (*shield.User, error)               { return nil, nil }
-func (m *memStore) UpdatePassword(_, _ string) error                         { return nil }
-func (m *memStore) CountUsers() (int, error)                                 { return 0, nil }
-func (m *memStore) ListUsers() ([]shield.User, error)                        { return nil, nil }
-func (m *memStore) PruneHistory(_ int) (int64, error)                        { return 0, nil }
-func (m *memStore) ListViolations(_ int) ([]shield.ViolationRow, error)      { return nil, nil }
-func (m *memStore) DismissResult(_, _, _ string) error                       { return nil }
-func (m *memStore) Migrate() error                                           { return nil }
-func (m *memStore) Close() error                                             { return nil }
+func (m *memStore) ListExceptions(_ context.Context) ([]shield.Exception, error)              { return nil, nil }
+func (m *memStore) AddException(_ context.Context, _ shield.Exception) error                  { return nil }
+func (m *memStore) DeleteException(_ context.Context, _ string) error                         { return nil }
+func (m *memStore) ListHistory(_ context.Context, _ int) ([]shield.ScanResult, error)         { return nil, nil }
+func (m *memStore) CreateUser(_ context.Context, _, _, _ string) (*shield.User, error)        { return nil, nil }
+func (m *memStore) GetUserByEmail(_ context.Context, _ string) (*shield.User, error)          { return nil, nil }
+func (m *memStore) GetUserByID(_ context.Context, _ string) (*shield.User, error)             { return nil, nil }
+func (m *memStore) UpdatePassword(_ context.Context, _, _ string) error                       { return nil }
+func (m *memStore) CountUsers(_ context.Context) (int, error)                                 { return 0, nil }
+func (m *memStore) ListUsers(_ context.Context) ([]shield.User, error)                        { return nil, nil }
+func (m *memStore) PruneHistory(_ context.Context, _ int) (int64, error)                      { return 0, nil }
+func (m *memStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)    { return nil, nil }
+func (m *memStore) DismissResult(_ context.Context, _, _, _ string) error                     { return nil }
+func (m *memStore) Migrate() error                                                             { return nil }
+func (m *memStore) Close() error                                                               { return nil }
 
 // stubAnalyzer returns preconfigured findings. Tracks call count atomically.
 type stubAnalyzer struct {

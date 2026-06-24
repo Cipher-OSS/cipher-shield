@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -8,33 +9,33 @@ import (
 	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
-// Store is the persistence interface. SQLite implements this for local mode.
+// Store is the persistence interface for both SQLite and Postgres backends.
 type Store interface {
 	// Scan cache
-	GetCachedResult(eco shield.Ecosystem, name, version string) (*shield.ScanResult, error)
-	SaveResult(r shield.ScanResult) error
+	GetCachedResult(ctx context.Context, eco shield.Ecosystem, name, version string) (*shield.ScanResult, error)
+	SaveResult(ctx context.Context, r shield.ScanResult) error
 
 	// Exceptions
-	GetException(eco shield.Ecosystem, name, version string) (*shield.Exception, error)
-	ListExceptions() ([]shield.Exception, error)
-	AddException(e shield.Exception) error
-	DeleteException(id string) error
+	GetException(ctx context.Context, eco shield.Ecosystem, name, version string) (*shield.Exception, error)
+	ListExceptions(ctx context.Context) ([]shield.Exception, error)
+	AddException(ctx context.Context, e shield.Exception) error
+	DeleteException(ctx context.Context, id string) error
 
-	// Scan history (recent scans for dashboard)
-	ListHistory(limit int) ([]shield.ScanResult, error)
-	PruneHistory(retentionDays int) (int64, error)
+	// Scan history
+	ListHistory(ctx context.Context, limit int) ([]shield.ScanResult, error)
+	PruneHistory(ctx context.Context, retentionDays int) (int64, error)
 
 	// Violations + triage
-	ListViolations(limit int) ([]shield.ViolationRow, error)
-	DismissResult(scanID, dismissedBy, note string) error
+	ListViolations(ctx context.Context, limit int) ([]shield.ViolationRow, error)
+	DismissResult(ctx context.Context, scanID, dismissedBy, note string) error
 
 	// Users
-	CreateUser(email, passwordHash, role string) (*shield.User, error)
-	GetUserByEmail(email string) (*shield.User, error)
-	GetUserByID(userID string) (*shield.User, error)
-	UpdatePassword(userID, passwordHash string) error
-	CountUsers() (int, error)
-	ListUsers() ([]shield.User, error)
+	CreateUser(ctx context.Context, email, passwordHash, role string) (*shield.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*shield.User, error)
+	GetUserByID(ctx context.Context, userID string) (*shield.User, error)
+	UpdatePassword(ctx context.Context, userID, passwordHash string) error
+	CountUsers(ctx context.Context) (int, error)
+	ListUsers(ctx context.Context) ([]shield.User, error)
 
 	Migrate() error
 	Close() error

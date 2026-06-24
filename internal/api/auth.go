@@ -70,7 +70,7 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 // table is empty (first-run bootstrap). Once any user exists, admin is required.
 func (s *Server) requireAdminOrBootstrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		count, err := s.store.CountUsers()
+		count, err := s.store.CountUsers(r.Context())
 		if err != nil {
 			jsonError(w, "db error", http.StatusInternalServerError)
 			return
@@ -97,7 +97,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "email and password required", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByEmail(req.Email)
+	user, err := s.store.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
@@ -179,7 +179,7 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "password must be at least 8 characters", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(id)
+	user, err := s.store.GetUserByID(r.Context(), id)
 	if err != nil {
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
@@ -193,7 +193,7 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "password hashing failed", http.StatusInternalServerError)
 		return
 	}
-	if err := s.store.UpdatePassword(id, string(hash)); err != nil {
+	if err := s.store.UpdatePassword(r.Context(), id, string(hash)); err != nil {
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
 	}

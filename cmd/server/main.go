@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -102,7 +103,7 @@ func main() {
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
 			for ; ; <-ticker.C {
-				n, err := store.PruneHistory(*historyDays)
+				n, err := store.PruneHistory(context.Background(), *historyDays)
 				if err != nil {
 					log.Printf("[prune] error: %v", err)
 				} else if n > 0 {
