@@ -2,9 +2,10 @@ package pipeline
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
+
+	"github.com/google/uuid"
 
 	shield "github.com/cipher-oss/cipher-shield/internal"
 	claudeanalyzer "github.com/cipher-oss/cipher-shield/internal/analyzer/claude"
@@ -228,5 +229,5 @@ func (p *Pipeline) CheckName(ctx context.Context, pkg shield.PackageRef) ([]shie
 }
 
 func newScanID() string {
-	return fmt.Sprintf("scan-%d", time.Now().UnixNano())
+	return "scan-" + uuid.New().String()
 }
