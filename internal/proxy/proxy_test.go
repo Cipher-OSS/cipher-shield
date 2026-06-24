@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	shield "github.com/cipher-oss/cipher-shield/internal"
@@ -208,5 +211,146 @@ func TestIsPyPISimple(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isPyPISimple(%q): want %v, got %v", tc.path, tc.want, got)
 		}
+	}
+}
+
+// ── resilientTransport ─────────────────────────────────────────────────────
+
+// mockRT is a fake RoundTripper that returns a canned status or error.
+type mockRT struct {
+	status int
+	err    error
+	called bool
+}
+
+func (m *mockRT) RoundTrip(_ *http.Request) (*http.Response, error) {
+	m.called = true
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &http.Response{
+		StatusCode: m.status,
+		Body:       io.NopCloser(strings.NewReader("")),
+	}, nil
+}
+
+func fakeProxyFn(u *url.URL) func(*http.Request) (*url.URL, error) {
+	return func(_ *http.Request) (*url.URL, error) { return u, nil }
+}
+
+func noProxyFn(_ *http.Request) (*url.URL, error) { return nil, nil }
+
+// TestResilientTransport_NoProxy — no proxy configured, goes direct.
+func TestResilientTransport_NoProxy(t *testing.T) {
+	direct := &mockRT{status: http.StatusOK}
+	proxied := &mockRT{status: http.StatusOK}
+
+	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: noProxyFn}
+	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/lodash", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+
+	if proxied.called {
+		t.Error("proxied transport should not be called when no proxy is configured")
+	}
+	if !direct.called {
+		t.Error("direct transport should be called when no proxy is configured")
+	}
+}
+
+// TestResilientTransport_ProxyWorks — proxy is reachable, response comes from it.
+func TestResilientTransport_ProxyWorks(t *testing.T) {
+	proxyURL, _ := url.Parse("http://corporate-proxy:8080")
+	direct := &mockRT{status: http.StatusOK}
+	proxied := &mockRT{status: http.StatusOK}
+
+	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: fakeProxyFn(proxyURL)}
+	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/lodash", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+
+	if !proxied.called {
+		t.Error("proxied transport should be called when proxy is configured")
+	}
+	if direct.called {
+		t.Error("direct transport should not be called when proxy succeeds")
+	}
+}
+
+// TestResilientTransport_ProxyUnreachable — proxy errors, falls back to direct.
+func TestResilientTransport_ProxyUnreachable(t *testing.T) {
+	proxyURL, _ := url.Parse("http://dead-proxy:9999")
+	direct := &mockRT{status: http.StatusOK}
+	proxied := &mockRT{err: errors.New("connection refused")}
+
+	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: fakeProxyFn(proxyURL)}
+	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/lodash", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("expected fallback to direct, got error: %v", err)
+	}
+	resp.Body.Close()
+
+	if !proxied.called {
+		t.Error("proxied transport should have been attempted")
+	}
+	if !direct.called {
+		t.Error("direct transport should be called as fallback when proxy is unreachable")
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200 from direct fallback, got %d", resp.StatusCode)
+	}
+}
+
+// TestResilientTransport_Proxy407 — proxy returns 407, falls back to direct.
+func TestResilientTransport_Proxy407(t *testing.T) {
+	proxyURL, _ := url.Parse("http://auth-proxy:8080")
+	direct := &mockRT{status: http.StatusOK}
+	proxied := &mockRT{status: http.StatusProxyAuthRequired}
+
+	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: fakeProxyFn(proxyURL)}
+	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/lodash", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("expected fallback to direct, got error: %v", err)
+	}
+	resp.Body.Close()
+
+	if !proxied.called {
+		t.Error("proxied transport should have been attempted")
+	}
+	if !direct.called {
+		t.Error("direct transport should be called as fallback on 407")
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200 from direct fallback, got %d", resp.StatusCode)
+	}
+}
+
+// TestResilientTransport_ProxyReturns4xx — non-407 errors from destination pass through unchanged.
+func TestResilientTransport_ProxyReturns4xx(t *testing.T) {
+	proxyURL, _ := url.Parse("http://corporate-proxy:8080")
+	direct := &mockRT{status: http.StatusOK}
+	proxied := &mockRT{status: http.StatusNotFound} // upstream 404, not a proxy error
+
+	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: fakeProxyFn(proxyURL)}
+	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/nonexistent", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+
+	if direct.called {
+		t.Error("direct transport should NOT be called for upstream 404 — that is not a proxy failure")
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("want 404 passed through, got %d", resp.StatusCode)
 	}
 }

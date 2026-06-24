@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ type Config struct {
 // Proxy is the package registry interception proxy.
 type Proxy struct {
 	cfg       Config
-	transport *http.Transport
+	transport http.RoundTripper
 }
 
 // New creates a Proxy from config.
@@ -74,19 +75,88 @@ func New(cfg Config) *Proxy {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1:7070"
 	}
-	return &Proxy{
-		cfg: cfg,
-		transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
+
+	dial := (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+
+	// Read npm proxy config once at startup as a fallback for enviroments where
+	// HTTP_PROXY is not set but npm itself has a proxy configured.
+	npmProxy := readNPMProxy()
+	proxyFn := func(req *http.Request) (*url.URL, error) {
+		if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
+			return u, err
+		}
+		if npmProxy != "" {
+			return url.Parse(npmProxy)
+		}
+		return nil, nil
+	}
+
+	baseTransport := func(proxy func(*http.Request) (*url.URL, error)) *http.Transport {
+		return &http.Transport{
+			Proxy:                 proxy,
+			DialContext:           dial,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConns:          100,
 			IdleConnTimeout:       90 * time.Second,
+		}
+	}
+
+	return &Proxy{
+		cfg: cfg,
+		transport: &resilientTransport{
+			proxied: baseTransport(proxyFn),
+			direct:  baseTransport(nil),
+			proxyFn: proxyFn,
 		},
 	}
+}
+
+// resilientTransport tries the configured upstream proxy first. If the proxy
+// itself is unreachable or returns 407, it retries the request direct so that
+// a stale or misconfigured proxy setting never breaks package installs.
+type resilientTransport struct {
+	proxied http.RoundTripper
+	direct  http.RoundTripper
+	proxyFn func(*http.Request) (*url.URL, error)
+}
+
+func (t *resilientTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	proxyURL, _ := t.proxyFn(req)
+	if proxyURL == nil {
+		return t.direct.RoundTrip(req)
+	}
+	resp, err := t.proxied.RoundTrip(req)
+	if err != nil {
+		log.Printf("[proxy] upstream proxy %s unreachable, retrying direct: %v", proxyURL.Host, err)
+		return t.direct.RoundTrip(req)
+	}
+	if resp.StatusCode == http.StatusProxyAuthRequired {
+		resp.Body.Close()
+		log.Printf("[proxy] upstream proxy %s requires authentication, retrying direct", proxyURL.Host)
+		return t.direct.RoundTrip(req)
+	}
+	return resp, nil
+}
+
+// readNPMProxy reads npm's configured proxy setting, if any.
+// Returns an empty string if npm is not installed or no proxy is configured.
+func readNPMProxy() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "npm", "config", "get", "proxy").Output()
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" || s == "null" {
+		return ""
+	}
+	log.Printf("[proxy] detected npm proxy config: %s", s)
+	return s
 }
 
 // Start begins accepting connections. Blocks until error.
