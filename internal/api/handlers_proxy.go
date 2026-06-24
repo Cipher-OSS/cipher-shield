@@ -43,8 +43,8 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid scan result: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if result.Package.Name == "" {
-		jsonError(w, "package name required", http.StatusBadRequest)
+	if result.ScanID == "" || result.Package.Name == "" {
+		jsonError(w, "scan_id and package name required", http.StatusBadRequest)
 		return
 	}
 	if err := s.store.SaveResult(r.Context(), result); err != nil {

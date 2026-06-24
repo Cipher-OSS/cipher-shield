@@ -523,6 +523,21 @@ func TestReportMissingPackageName(t *testing.T) {
 	}
 }
 
+func TestReportMissingScanID(t *testing.T) {
+	srv := newTestServer(newTestStore())
+
+	body := `{"scan_id":"","package":{"name":"express","version":"4.18.0"}}`
+	req := httptest.NewRequest("POST", "/api/v1/report", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testProxyToken)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
 // ── History ───────────────────────────────────────────────────────────────────
 
 func TestHistoryRequiresAuth(t *testing.T) {
