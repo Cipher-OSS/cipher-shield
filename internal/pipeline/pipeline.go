@@ -79,13 +79,13 @@ func (p *Pipeline) Analyze(ctx context.Context, pkg shield.PackageRef, tarball [
 	start := time.Now()
 
 	// Check cache first
-	if cached, err := p.store.GetCachedResult(pkg.Ecosystem, pkg.Name, pkg.Version); err == nil && cached != nil {
+	if cached, err := p.store.GetCachedResult(ctx, pkg.Ecosystem, pkg.Name, pkg.Version); err == nil && cached != nil {
 		log.Printf("[pipeline] cache hit: %s@%s (%s)", pkg.Name, pkg.Version, cached.Verdict)
 		return cached, nil
 	}
 
 	// Check exceptions — if package is explicitly allowed, skip analysis
-	if exc, err := p.store.GetException(pkg.Ecosystem, pkg.Name, pkg.Version); err == nil && exc != nil {
+	if exc, err := p.store.GetException(ctx, pkg.Ecosystem, pkg.Name, pkg.Version); err == nil && exc != nil {
 		log.Printf("[pipeline] exception: %s@%s — %s", pkg.Name, pkg.Version, exc.Reason)
 		result := &shield.ScanResult{
 			ScanID:     newScanID(),
@@ -171,7 +171,7 @@ func (p *Pipeline) Analyze(ctx context.Context, pkg shield.PackageRef, tarball [
 	}
 
 	// Persist to cache + history
-	if err := p.store.SaveResult(*result); err != nil {
+	if err := p.store.SaveResult(ctx, *result); err != nil {
 		log.Printf("[pipeline] save result: %v", err)
 	}
 

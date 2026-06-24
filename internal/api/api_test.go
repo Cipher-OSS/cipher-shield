@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+
 // ── Test doubles ──────────────────────────────────────────────────────────────
 
 type testStore struct {
@@ -32,7 +33,7 @@ func newTestStore() *testStore {
 	}
 }
 
-func (s *testStore) CreateUser(email, passwordHash, role string) (*shield.User, error) {
+func (s *testStore) CreateUser(_ context.Context, email, passwordHash, role string) (*shield.User, error) {
 	u := &shield.User{
 		UserID:       fmt.Sprintf("uid-%d", len(s.users)+1),
 		Email:        email,
@@ -44,11 +45,11 @@ func (s *testStore) CreateUser(email, passwordHash, role string) (*shield.User, 
 	return u, nil
 }
 
-func (s *testStore) GetUserByEmail(email string) (*shield.User, error) {
+func (s *testStore) GetUserByEmail(_ context.Context, email string) (*shield.User, error) {
 	return s.users[email], nil
 }
 
-func (s *testStore) GetUserByID(userID string) (*shield.User, error) {
+func (s *testStore) GetUserByID(_ context.Context, userID string) (*shield.User, error) {
 	for _, u := range s.users {
 		if u.UserID == userID {
 			return u, nil
@@ -57,7 +58,7 @@ func (s *testStore) GetUserByID(userID string) (*shield.User, error) {
 	return nil, nil
 }
 
-func (s *testStore) UpdatePassword(userID, passwordHash string) error {
+func (s *testStore) UpdatePassword(_ context.Context, userID, passwordHash string) error {
 	for _, u := range s.users {
 		if u.UserID == userID {
 			u.PasswordHash = passwordHash
@@ -67,9 +68,9 @@ func (s *testStore) UpdatePassword(userID, passwordHash string) error {
 	return nil
 }
 
-func (s *testStore) CountUsers() (int, error) { return len(s.users), nil }
+func (s *testStore) CountUsers(_ context.Context) (int, error) { return len(s.users), nil }
 
-func (s *testStore) ListUsers() ([]shield.User, error) {
+func (s *testStore) ListUsers(_ context.Context) ([]shield.User, error) {
 	out := make([]shield.User, 0, len(s.users))
 	for _, u := range s.users {
 		out = append(out, *u)
@@ -77,20 +78,20 @@ func (s *testStore) ListUsers() ([]shield.User, error) {
 	return out, nil
 }
 
-func (s *testStore) GetCachedResult(_ shield.Ecosystem, _, _ string) (*shield.ScanResult, error) {
+func (s *testStore) GetCachedResult(_ context.Context, _ shield.Ecosystem, _, _ string) (*shield.ScanResult, error) {
 	return nil, nil
 }
 
-func (s *testStore) SaveResult(r shield.ScanResult) error {
+func (s *testStore) SaveResult(_ context.Context, r shield.ScanResult) error {
 	s.history = append(s.history, r)
 	return nil
 }
 
-func (s *testStore) GetException(eco shield.Ecosystem, name, version string) (*shield.Exception, error) {
+func (s *testStore) GetException(_ context.Context, eco shield.Ecosystem, name, version string) (*shield.Exception, error) {
 	return nil, nil
 }
 
-func (s *testStore) ListExceptions() ([]shield.Exception, error) {
+func (s *testStore) ListExceptions(_ context.Context) ([]shield.Exception, error) {
 	out := make([]shield.Exception, 0, len(s.exceptions))
 	for _, e := range s.exceptions {
 		out = append(out, e)
@@ -98,17 +99,17 @@ func (s *testStore) ListExceptions() ([]shield.Exception, error) {
 	return out, nil
 }
 
-func (s *testStore) AddException(e shield.Exception) error {
+func (s *testStore) AddException(_ context.Context, e shield.Exception) error {
 	s.exceptions[e.ExceptionID] = e
 	return nil
 }
 
-func (s *testStore) DeleteException(id string) error {
+func (s *testStore) DeleteException(_ context.Context, id string) error {
 	delete(s.exceptions, id)
 	return nil
 }
 
-func (s *testStore) ListHistory(limit int) ([]shield.ScanResult, error) {
+func (s *testStore) ListHistory(_ context.Context, limit int) ([]shield.ScanResult, error) {
 	n := limit
 	if n > len(s.history) {
 		n = len(s.history)
@@ -116,9 +117,9 @@ func (s *testStore) ListHistory(limit int) ([]shield.ScanResult, error) {
 	return s.history[:n], nil
 }
 
-func (s *testStore) PruneHistory(_ int) (int64, error)                        { return 0, nil }
-func (s *testStore) ListViolations(_ int) ([]shield.ViolationRow, error)      { return nil, nil }
-func (s *testStore) DismissResult(_, _, _ string) error                       { return nil }
+func (s *testStore) PruneHistory(_ context.Context, _ int) (int64, error)                        { return 0, nil }
+func (s *testStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)      { return nil, nil }
+func (s *testStore) DismissResult(_ context.Context, _, _, _ string) error                       { return nil }
 func (s *testStore) Migrate() error                                            { return nil }
 func (s *testStore) Close() error                                              { return nil }
 
