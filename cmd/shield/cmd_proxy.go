@@ -39,7 +39,15 @@ func proxyStart(args []string) {
 			addr = args[i+1]
 		}
 	}
-	proxyURL := "http://" + addr
+
+	// Resolve scheme before configuring npm/pip so TLS mode gets the right URL.
+	tlsCert := envOr("SHIELD_PROXY_TLS_CERT", "")
+	tlsKey := envOr("SHIELD_PROXY_TLS_KEY", "")
+	scheme := "http"
+	if tlsCert != "" && tlsKey != "" {
+		scheme = "https"
+	}
+	proxyURL := scheme + "://" + addr
 
 	if proxyctl.IsRunning() {
 		fmt.Printf("cipher-shield proxy is already running (%s)\n", proxyctl.Status())
@@ -94,15 +102,6 @@ func proxyStart(args []string) {
 	fmt.Printf("\n✓ cipher-shield proxy running on %s\n", addr)
 	fmt.Println("  All npm install and pip install commands are now screened.")
 	fmt.Println("  Press Ctrl+C to stop and restore original settings.")
-
-	tlsCert := envOr("SHIELD_PROXY_TLS_CERT", "")
-	tlsKey := envOr("SHIELD_PROXY_TLS_KEY", "")
-
-	scheme := "http"
-	if tlsCert != "" && tlsKey != "" {
-		scheme = "https"
-	}
-	proxyURL = scheme + "://" + addr
 
 	proxyCfg := proxy.Config{
 		ListenAddr:  addr,

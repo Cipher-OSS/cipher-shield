@@ -71,18 +71,7 @@ func buildPipeline() *pipeline.Pipeline {
 		store = s
 	}
 
-	cfg := pipeline.DefaultConfig()
-	if m := os.Getenv("SHIELD_MODE"); m != "" {
-		cfg.Mode = m
-	}
-
-	var claudeAnalyzer analyzer.Analyzer
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		claudeAnalyzer = claude.New(key)
-	}
-
-	overridePath := dirOf(dbPath) + "/known_bad.json"
-	return pipeline.New(store, cfg, badlist.NewWithOverride(overridePath), cve.New(), heuristic.New(), claudeAnalyzer)
+	return buildPipelineWithStore(store)
 }
 
 func scanLockfile(pl *pipeline.Pipeline, path string) {
@@ -96,7 +85,6 @@ func scanLockfile(pl *pipeline.Pipeline, path string) {
 
 	ctx := context.Background()
 	var blocked, warned, clean int
-	var results []*shield.ScanResult
 
 	for _, ref := range refs {
 		result, err := pl.Analyze(ctx, ref, nil)
@@ -104,7 +92,6 @@ func scanLockfile(pl *pipeline.Pipeline, path string) {
 			fmt.Fprintf(os.Stderr, "  [error] %s@%s: %v\n", ref.Name, ref.Version, err)
 			continue
 		}
-		results = append(results, result)
 		switch result.Verdict {
 		case shield.VerdictBlock:
 			blocked++
