@@ -243,6 +243,14 @@ func (p *Proxy) serve(conn net.Conn) {
 	// npm metadata request — check package name against Tier 1 before forwarding
 	if name, ok := detectNPMMeta(req); ok {
 		if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
+			if p.cfg.Pipeline != nil {
+				pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name}
+				go func() {
+					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+						log.Printf("[proxy] failed to record name-block for %s: %v", name, err)
+					}
+				}()
+			}
 			writeError(conn, http.StatusForbidden, fmt.Sprintf(
 				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", name, name))
 			return
@@ -461,6 +469,14 @@ func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
 	parts := strings.SplitN(strings.Trim(req.URL.Path, "/"), "/", 3)
 	if len(parts) >= 2 && parts[0] == "simple" && parts[1] != "" {
 		if p.shouldBlockName(context.Background(), shield.EcosystemPyPI, parts[1]) {
+			if p.cfg.Pipeline != nil {
+				pkg := shield.PackageRef{Ecosystem: shield.EcosystemPyPI, Name: parts[1]}
+				go func() {
+					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+						log.Printf("[proxy] failed to record name-block for %s: %v", parts[1], err)
+					}
+				}()
+			}
 			writeError(conn, http.StatusForbidden, fmt.Sprintf(
 				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", parts[1], parts[1]))
 			return
