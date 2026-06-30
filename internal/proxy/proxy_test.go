@@ -308,7 +308,7 @@ func TestResilientTransport_ProxyUnreachable(t *testing.T) {
 	}
 }
 
-// TestResilientTransport_Proxy407 — proxy returns 407, falls back to direct.
+// TestResilientTransport_Proxy407 — proxy returns 407, returns actionable error (no silent bypass).
 func TestResilientTransport_Proxy407(t *testing.T) {
 	proxyURL, _ := url.Parse("http://auth-proxy:8080")
 	direct := &mockRT{status: http.StatusOK}
@@ -316,20 +316,15 @@ func TestResilientTransport_Proxy407(t *testing.T) {
 
 	rt := &resilientTransport{proxied: proxied, direct: direct, proxyFn: fakeProxyFn(proxyURL)}
 	req, _ := http.NewRequest("GET", "http://registry.npmjs.org/lodash", nil)
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("expected fallback to direct, got error: %v", err)
+	_, err := rt.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected error on 407, got nil — proxy auth must not be silently bypassed")
 	}
-	resp.Body.Close()
-
 	if !proxied.called {
 		t.Error("proxied transport should have been attempted")
 	}
-	if !direct.called {
-		t.Error("direct transport should be called as fallback on 407")
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("want 200 from direct fallback, got %d", resp.StatusCode)
+	if direct.called {
+		t.Error("direct transport must not be called as fallback on 407 — that bypasses the security gateway")
 	}
 }
 
