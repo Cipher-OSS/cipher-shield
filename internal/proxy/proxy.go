@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -81,14 +82,22 @@ func New(cfg Config) *Proxy {
 		KeepAlive: 30 * time.Second,
 	}).DialContext
 
-	// Read npm proxy config once at startup as a fallback for enviroments where
+	// Read npm proxy config once at startup as a fallback for environments where
 	// HTTP_PROXY is not set but npm itself has a proxy configured.
 	npmProxy := readNPMProxy()
+	// hasEnvProxy is true when HTTP_PROXY/HTTPS_PROXY is set in the environment.
+	// When an env proxy IS configured and ProxyFromEnvironment returns nil, the
+	// target host is excluded by NO_PROXY — the npm fallback must respect that too.
+	hasEnvProxy := os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" ||
+		os.Getenv("http_proxy") != "" || os.Getenv("https_proxy") != ""
 	proxyFn := func(req *http.Request) (*url.URL, error) {
 		if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
 			return u, err
 		}
-		if npmProxy != "" {
+		// Only fall back to npm proxy when no environment proxy is active.
+		// If HTTP_PROXY is set but ProxyFromEnvironment returned nil, the target
+		// host is excluded by NO_PROXY — respect that exclusion.
+		if !hasEnvProxy && npmProxy != "" {
 			return url.Parse(npmProxy)
 		}
 		return nil, nil
@@ -125,21 +134,64 @@ type resilientTransport struct {
 }
 
 func (t *resilientTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	proxyURL, _ := t.proxyFn(req)
+	proxyURL, err := t.proxyFn(req)
+	if err != nil {
+		log.Printf("[proxy] proxy config error: %v — routing direct", err)
+		return t.direct.RoundTrip(req)
+	}
 	if proxyURL == nil {
 		return t.direct.RoundTrip(req)
 	}
+	// Only retry on proxy failure if the request body can be reset.
+	// If GetBody is nil and Body is non-nil, the body may be partially consumed
+	// after a failed proxied attempt, making a direct retry unsafe.
+	canRetry := req.Body == nil || req.GetBody != nil
+
 	resp, err := t.proxied.RoundTrip(req)
 	if err != nil {
+		if !canRetry {
+			return nil, fmt.Errorf("upstream proxy %s: %w (request body not retryable)", proxyURL.Host, err)
+		}
 		log.Printf("[proxy] upstream proxy %s unreachable, retrying direct: %v", proxyURL.Host, err)
+		if req.GetBody != nil {
+			body, berr := req.GetBody()
+			if berr != nil {
+				return nil, fmt.Errorf("proxy retry: reset body: %w", berr)
+			}
+			req.Body = body
+		}
 		return t.direct.RoundTrip(req)
 	}
+	// For HTTPS upstreams (all current registry traffic), a proxy 407 arrives as
+	// an error above via the CONNECT tunnel — this branch covers HTTP upstreams.
 	if resp.StatusCode == http.StatusProxyAuthRequired {
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-		log.Printf("[proxy] upstream proxy %s requires authentication, retrying direct", proxyURL.Host)
-		return t.direct.RoundTrip(req)
+		return nil, fmt.Errorf("upstream proxy %s requires authentication (407): "+
+			"set HTTPS_PROXY with credentials or configure proxy authentication", proxyURL.Host)
 	}
 	return resp, nil
+}
+
+func (t *resilientTransport) CloseIdleConnections() {
+	type idleCloser interface{ CloseIdleConnections() }
+	if c, ok := t.proxied.(idleCloser); ok {
+		c.CloseIdleConnections()
+	}
+	if c, ok := t.direct.(idleCloser); ok {
+		c.CloseIdleConnections()
+	}
+}
+
+// maskProxyURL redacts user:password@ from a proxy URL to avoid logging credentials.
+func maskProxyURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	masked := *u
+	masked.User = url.User(u.User.Username())
+	return masked.String()
 }
 
 // readNPMProxy reads npm's configured proxy setting, if any.
@@ -151,12 +203,16 @@ func readNPMProxy() string {
 	if err != nil {
 		return ""
 	}
-	s := strings.TrimSpace(string(out))
-	if s == "" || s == "null" {
-		return ""
+	// Take the first output line that looks like a proxy URL; npm may emit
+	// deprecation warnings or other diagnostic text on subsequent lines.
+	for _, line := range strings.Split(string(out), "\n") {
+		s := strings.TrimSpace(line)
+		if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+			log.Printf("[proxy] detected npm proxy config: %s", maskProxyURL(s))
+			return s
+		}
 	}
-	log.Printf("[proxy] detected npm proxy config: %s", s)
-	return s
+	return ""
 }
 
 // Start begins accepting connections. Blocks until error.
@@ -243,6 +299,14 @@ func (p *Proxy) serve(conn net.Conn) {
 	// npm metadata request — check package name against Tier 1 before forwarding
 	if name, ok := detectNPMMeta(req); ok {
 		if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
+			if p.cfg.Pipeline != nil {
+				pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name}
+				go func() {
+					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+						log.Printf("[proxy] failed to record name-block for %s: %v", name, err)
+					}
+				}()
+			}
 			writeError(conn, http.StatusForbidden, fmt.Sprintf(
 				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", name, name))
 			return
@@ -331,6 +395,22 @@ func (p *Proxy) proxyTransparent(conn net.Conn, req *http.Request) {
 	req.Header.Del("Proxy-Connection")
 	req.Header.Del("Proxy-Authorization")
 	req.RequestURI = ""
+
+	// Buffer the request body so resilientTransport can reset it when retrying
+	// direct after a proxy failure. npm/pip metadata requests are typically GET
+	// with no body, but we handle POST/PUT safely regardless.
+	if req.Body != nil && req.Body != http.NoBody {
+		data, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
+		req.Body.Close()
+		if err != nil {
+			writeError(conn, http.StatusBadGateway, "failed to read request body")
+			return
+		}
+		req.Body = io.NopCloser(bytes.NewReader(data))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+	}
 
 	resp, err := p.transport.RoundTrip(req)
 	if err != nil {
@@ -460,9 +540,18 @@ func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
 	// Extract package name from /simple/<name>/ and check Tier 1
 	parts := strings.SplitN(strings.Trim(req.URL.Path, "/"), "/", 3)
 	if len(parts) >= 2 && parts[0] == "simple" && parts[1] != "" {
-		if p.shouldBlockName(context.Background(), shield.EcosystemPyPI, parts[1]) {
+		pkgName := parts[1]
+		if p.shouldBlockName(context.Background(), shield.EcosystemPyPI, pkgName) {
+			if p.cfg.Pipeline != nil {
+				pkg := shield.PackageRef{Ecosystem: shield.EcosystemPyPI, Name: pkgName}
+				go func() {
+					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+						log.Printf("[proxy] failed to record name-block for %s: %v", pkgName, err)
+					}
+				}()
+			}
 			writeError(conn, http.StatusForbidden, fmt.Sprintf(
-				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", parts[1], parts[1]))
+				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", pkgName, pkgName))
 			return
 		}
 	}
