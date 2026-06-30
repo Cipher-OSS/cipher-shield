@@ -42,7 +42,7 @@ npm install axios          pip install requests
 
 **Tier 4 — Claude Opus** *(optional)*: Runs only when the heuristic score ≥ 30 or a high-CVSS CVE is found. Claude reads the actual install scripts and source code and returns a structured verdict with reasoning — real code comprehension, not just signatures. Requires `ANTHROPIC_API_KEY`. **Without it, Tiers 1–3 still run and catch the vast majority of threats** (known-bad packages, published CVEs, and heuristic red flags); Tier 4 adds a deeper second opinion on ambiguous cases.
 
-Results are cached (4 h for clean packages, 1 h for warn/block) so each unique package version is only analyzed once across your team.
+Results are cached (4 h for allow, 1 h for warn/block) so each unique package version is only analyzed once across your team.
 
 ---
 
@@ -286,9 +286,9 @@ Step-by-step guides for deploying the team server:
 
 | Cloud | Guide | Architecture | Est. cost |
 |---|---|---|---|
-| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | EC2 + RDS PostgreSQL | ~$30/mo |
-| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15/mo |
-| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Instances + PostgreSQL Flexible Server | ~$35/mo |
+| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | ECS Fargate + RDS PostgreSQL | ~$35–60/mo |
+| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15–30/mo |
+| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Apps + PostgreSQL Flexible Server | ~$20–40/mo |
 
 All guides cover: database setup, container deployment, first-user bootstrap, developer machine configuration, and teardown.
 

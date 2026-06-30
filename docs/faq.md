@@ -309,7 +309,7 @@ We recommend a proper CA-signed certificate (Let's Encrypt is free) to avoid con
 
 Each package passes through Tier 1 (instant) and Tier 2 (OSV.dev network lookup) before being allowed. Tier 2 adds ~100–300 ms per unique package.
 
-Once a package is scanned, the result is cached for 24 hours (clean) or 1 hour (warn/block). Repeat installs of the same version are instant.
+Once a package is scanned, the result is cached for 4 hours (allow) or 1 hour (warn/block). Repeat installs of the same version are instant.
 
 If Claude Opus (Tier 4) triggers — only for packages with suspicious heuristic scores or high-severity CVEs — that adds 5–15 seconds. This is intentional: Claude only runs when a package looks genuinely dangerous.
 

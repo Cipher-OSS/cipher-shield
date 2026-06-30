@@ -12,7 +12,7 @@ We support the latest release only. Please update before reporting a vulnerabili
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Email **security@cipher-shield.io** with:
+Email **security@cipher-ai.app** with:
 
 - A description of the vulnerability and its potential impact
 - Steps to reproduce
