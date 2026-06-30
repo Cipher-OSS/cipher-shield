@@ -18,7 +18,7 @@ Managed containers — no VMs to manage, scales to zero when idle, auto-restarts
 ```bash
 export RG=cipher-shield-rg
 export LOCATION=eastus
-export DB_SERVER=cipher-shield-pg
+export DB_SERVER=cipher-shield-db
 export DB_NAME=shield
 export DB_USER=shieldadmin
 export ACA_ENV=cipher-shield-env
@@ -123,7 +123,7 @@ echo "API URL: https://$API_URL"
 
 ## 7. Deploy the package proxy (port 7070)
 
-The server binary starts both the API (8080) and proxy (7070) automatically. Deploying a second Container App targeting port 7070 gives your team a centralized enforcement point — developers configure pip and npm to point at this URL rather than running cipher-shield locally.
+The proxy runs the standalone `cipher-shield-proxy` binary from the same image. It does not connect to Postgres directly — it ships scan results to the API over HTTP. This is why Container Apps works here: the proxy only needs to reach the API service, not the database.
 
 ```bash
 az containerapp create \
@@ -137,15 +137,13 @@ az containerapp create \
   --scale-rule-name cpu-rule \
   --scale-rule-type cpu \
   --scale-rule-metadata type=Utilization value=60 \
+  --command "cipher-shield-proxy" \
   --secrets \
-    "jwt-secret=${JWT_SECRET}" \
     "proxy-token=${PROXY_TOKEN}" \
-    "db-url=${DB_URL}" \
   --env-vars \
     SHIELD_MODE=enforce \
-    SHIELD_JWT_SECRET=secretref:jwt-secret \
-    SHIELD_PROXY_TOKEN=secretref:proxy-token \
-    DATABASE_URL=secretref:db-url
+    SHIELD_SERVER_URL=https://${API_URL} \
+    SHIELD_PROXY_TOKEN=secretref:proxy-token
 
 PROXY_URL=$(az containerapp show \
   --name cipher-shield-proxy --resource-group $RG \
