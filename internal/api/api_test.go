@@ -228,8 +228,8 @@ func TestConfig(t *testing.T) {
 		Mode        string `json:"mode"`
 	}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp.Version != "0.1.0" {
-		t.Errorf("want version=0.1.0, got %q", resp.Version)
+	if resp.Version != "0.1.4" {
+		t.Errorf("want version=0.1.4, got %q", resp.Version)
 	}
 	if !resp.AuthEnabled {
 		t.Error("want auth_enabled=true when jwtSecret is set")
