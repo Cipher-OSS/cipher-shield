@@ -295,7 +295,7 @@ SERVER_IP=$(aws ec2 describe-network-interfaces --region $AWS_REGION \
   --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
 
 curl http://$SERVER_IP:8080/api/v1/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.1.4"}
 ```
 
 ---
