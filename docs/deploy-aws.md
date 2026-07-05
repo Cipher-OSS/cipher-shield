@@ -274,9 +274,9 @@ cipher-shield proxy start
 
 ---
 
-## (Optional) HTTPS
+## Corporate proxies and secure web gateways
 
-Add an Application Load Balancer targeting port 8080 with an ACM certificate for TLS. The proxy port 7070 can remain direct HTTP (or restrict it to your VPN CIDR in the task security group).
+If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, see **[Network and corporate proxy requirements →](network.md)** for the one-time policy changes needed to allow cipher-shield traffic through.
 
 ---
 
