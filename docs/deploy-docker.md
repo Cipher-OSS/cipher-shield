@@ -137,6 +137,12 @@ The `-v` flag removes the Postgres volume. Omit it if you want to keep the datab
 
 ---
 
+## Corporate proxies and secure web gateways
+
+If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, see **[Network and corporate proxy requirements →](network.md)** for the one-time policy changes needed to allow cipher-shield traffic through.
+
+---
+
 ## Next steps
 
 - [Configure exceptions](../README.md#exceptions) for known-safe internal packages
