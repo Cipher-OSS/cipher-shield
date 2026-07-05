@@ -148,17 +148,16 @@ echo "API URL: $API_URL"
 
 ## 8. Deploy the package proxy (port 7070)
 
-Cloud Run only exposes one port per service, so the proxy runs as a second service targeting port 7070. Both use the same image and share the same database.
+Cloud Run only exposes one port per service, so the proxy runs as a second service targeting port 7070. It uses the standalone `cipher-shield-proxy` binary from the same image — no direct database connection needed. It ships scan results to the API service over HTTPS.
 
 ```bash
 gcloud run deploy cipher-shield-proxy \
   --image=$IMAGE \
   --region=$REGION \
   --port=7070 \
-  --vpc-connector=cipher-connector \
-  --vpc-egress=private-ranges-only \
-  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=${DB_URL}" \
-  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
+  --command=cipher-shield-proxy \
+  --set-env-vars="SHIELD_MODE=enforce,SHIELD_SERVER_URL=${API_URL}" \
+  --set-secrets="SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
   --allow-unauthenticated \
   --min-instances=1 \
   --max-instances=4
@@ -174,7 +173,7 @@ echo "Proxy URL: $PROXY_URL"
 
 ```bash
 curl $API_URL/api/v1/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.1.4"}
 ```
 
 ---

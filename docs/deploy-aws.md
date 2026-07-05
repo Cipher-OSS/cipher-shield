@@ -142,28 +142,28 @@ ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${APP}-exec-role"
 
 ---
 
-## 7. ECS cluster and task definition
+## 7. ECS cluster and task definitions
+
+Two task definitions: the API task runs the full server binary (dashboard + database); the proxy task runs the standalone `cipher-shield-proxy` binary and ships results to the API over HTTP — no direct database access needed.
 
 ```bash
 aws ecs create-cluster --region $AWS_REGION --cluster-name $APP
 
 aws logs create-log-group --region $AWS_REGION --log-group-name /ecs/$APP
 
-cat > /tmp/task.json << EOF
+# API task — full server binary (port 8080)
+cat > /tmp/task-api.json << EOF
 {
-  "family": "$APP",
+  "family": "${APP}-api",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512", "memory": "1024",
   "executionRoleArn": "${ROLE_ARN}",
   "taskRoleArn": "${ROLE_ARN}",
   "containerDefinitions": [{
-    "name": "$APP",
+    "name": "${APP}-api",
     "image": "${IMAGE}",
-    "portMappings": [
-      {"containerPort": 8080},
-      {"containerPort": 7070}
-    ],
+    "portMappings": [{"containerPort": 8080}],
     "environment": [
       {"name": "SHIELD_MODE", "value": "enforce"}
     ],
@@ -177,24 +177,61 @@ cat > /tmp/task.json << EOF
       "options": {
         "awslogs-group": "/ecs/${APP}",
         "awslogs-region": "${AWS_REGION}",
-        "awslogs-stream-prefix": "ecs"
+        "awslogs-stream-prefix": "api"
       }
     }
   }]
 }
 EOF
 
-aws ecs register-task-definition --region $AWS_REGION --cli-input-json file:///tmp/task.json
+aws ecs register-task-definition --region $AWS_REGION --cli-input-json file:///tmp/task-api.json
+
+# Proxy task — standalone proxy binary (port 7070), reports to API via HTTP
+# Note: ECS uses "entryPoint" (not "command") to override a Docker ENTRYPOINT.
+cat > /tmp/task-proxy.json << EOF
+{
+  "family": "${APP}-proxy",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512", "memory": "1024",
+  "executionRoleArn": "${ROLE_ARN}",
+  "taskRoleArn": "${ROLE_ARN}",
+  "containerDefinitions": [{
+    "name": "${APP}-proxy",
+    "image": "${IMAGE}",
+    "entryPoint": ["cipher-shield-proxy"],
+    "portMappings": [{"containerPort": 7070}],
+    "environment": [
+      {"name": "SHIELD_MODE",       "value": "enforce"},
+      {"name": "SHIELD_SERVER_URL", "value": "http://${SERVER_IP}:8080"}
+    ],
+    "secrets": [
+      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/proxy-token"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/${APP}",
+        "awslogs-region": "${AWS_REGION}",
+        "awslogs-stream-prefix": "proxy"
+      }
+    }
+  }]
+}
+EOF
+
+aws ecs register-task-definition --region $AWS_REGION --cli-input-json file:///tmp/task-proxy.json
 ```
 
 ---
 
-## 8. Deploy Fargate service with auto-scaling
+## 8. Deploy Fargate services with auto-scaling
 
 ```bash
+# API service
 aws ecs create-service --region $AWS_REGION \
-  --cluster $APP --service-name $APP \
-  --task-definition $APP --desired-count 1 \
+  --cluster $APP --service-name ${APP}-api \
+  --task-definition ${APP}-api --desired-count 1 \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={
     subnets=[${SUBNETS}],
@@ -202,25 +239,38 @@ aws ecs create-service --region $AWS_REGION \
     assignPublicIp=ENABLED
   }"
 
-# Scale 1–4 tasks; add a task when average CPU exceeds 60%
-aws application-autoscaling register-scalable-target \
-  --service-namespace ecs \
-  --resource-id service/$APP/$APP \
-  --scalable-dimension ecs:service:DesiredCount \
-  --min-capacity 1 --max-capacity 4
+# Proxy service
+aws ecs create-service --region $AWS_REGION \
+  --cluster $APP --service-name ${APP}-proxy \
+  --task-definition ${APP}-proxy --desired-count 1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={
+    subnets=[${SUBNETS}],
+    securityGroups=[${TASK_SG}],
+    assignPublicIp=ENABLED
+  }"
 
-aws application-autoscaling put-scaling-policy \
-  --service-namespace ecs \
-  --resource-id service/$APP/$APP \
-  --scalable-dimension ecs:service:DesiredCount \
-  --policy-name cpu-scaling \
-  --policy-type TargetTrackingScaling \
-  --target-tracking-scaling-policy-configuration '{
-    "TargetValue": 60.0,
-    "PredefinedMetricSpecification": {"PredefinedMetricType": "ECSServiceAverageCPUUtilization"},
-    "ScaleInCooldown": 60,
-    "ScaleOutCooldown": 30
-  }'
+# Auto-scale each service 1–4 tasks at 60% CPU
+for SVC in ${APP}-api ${APP}-proxy; do
+  aws application-autoscaling register-scalable-target \
+    --service-namespace ecs \
+    --resource-id service/$APP/$SVC \
+    --scalable-dimension ecs:service:DesiredCount \
+    --min-capacity 1 --max-capacity 4
+
+  aws application-autoscaling put-scaling-policy \
+    --service-namespace ecs \
+    --resource-id service/$APP/$SVC \
+    --scalable-dimension ecs:service:DesiredCount \
+    --policy-name cpu-scaling \
+    --policy-type TargetTrackingScaling \
+    --target-tracking-scaling-policy-configuration '{
+      "TargetValue": 60.0,
+      "PredefinedMetricSpecification": {"PredefinedMetricType": "ECSServiceAverageCPUUtilization"},
+      "ScaleInCooldown": 60,
+      "ScaleOutCooldown": 30
+    }'
+done
 ```
 
 ---
@@ -245,7 +295,7 @@ SERVER_IP=$(aws ec2 describe-network-interfaces --region $AWS_REGION \
   --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
 
 curl http://$SERVER_IP:8080/api/v1/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.1.4"}
 ```
 
 ---
@@ -283,8 +333,10 @@ If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, s
 ## Teardown
 
 ```bash
-aws ecs update-service --region $AWS_REGION --cluster $APP --service $APP --desired-count 0
-aws ecs delete-service --region $AWS_REGION --cluster $APP --service $APP
+aws ecs update-service --region $AWS_REGION --cluster $APP --service ${APP}-api   --desired-count 0
+aws ecs update-service --region $AWS_REGION --cluster $APP --service ${APP}-proxy --desired-count 0
+aws ecs delete-service --region $AWS_REGION --cluster $APP --service ${APP}-api
+aws ecs delete-service --region $AWS_REGION --cluster $APP --service ${APP}-proxy
 aws ecs delete-cluster --region $AWS_REGION --cluster $APP
 aws rds delete-db-instance --region $AWS_REGION \
   --db-instance-identifier $APP-pg --skip-final-snapshot
