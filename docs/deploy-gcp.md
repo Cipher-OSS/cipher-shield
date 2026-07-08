@@ -4,6 +4,8 @@
 Serverless containers — scales to zero when idle, auto-scales under load, fully managed.  
 **Estimated cost:** ~$15–30/month (Cloud Run billing is per-request when scaled to zero).
 
+> **Production deployments** — For a custom domain (`npm.yourcompany.com`) with a Google-managed certificate and Global Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+
 ---
 
 ## Prerequisites
@@ -87,9 +89,12 @@ gcloud sql instances create $SQL_INSTANCE \
 gcloud sql databases create shield --instance=$SQL_INSTANCE
 gcloud sql users create shield --instance=$SQL_INSTANCE --password="$DB_PASSWORD"
 
-DB_PRIVATE_IP=$(gcloud sql instances describe $SQL_INSTANCE \
-  --format='value(ipAddresses[0].ipAddress)')
+DB_PRIVATE_IP=$(gcloud sql instances describe $SQL_INSTANCE --format=json \
+  | jq -r '.ipAddresses[] | select(.type=="PRIVATE") | .ipAddress')
 echo "DB_PRIVATE_IP=$DB_PRIVATE_IP"
+
+DB_URL="postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require"
+echo -n "$DB_URL" | gcloud secrets create cipher-db-url --data-file=- --project=$PROJECT_ID
 ```
 
 ---
@@ -113,7 +118,7 @@ gcloud compute networks vpc-access connectors create cipher-connector \
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-for SECRET in cipher-jwt-secret cipher-proxy-token cipher-db-password; do
+for SECRET in cipher-jwt-secret cipher-proxy-token cipher-db-password cipher-db-url; do
   gcloud secrets add-iam-policy-binding $SECRET \
     --member="serviceAccount:$SA" \
     --role="roles/secretmanager.secretAccessor"
@@ -125,16 +130,14 @@ done
 ## 7. Deploy the API / dashboard (port 8080)
 
 ```bash
-DB_URL="postgres://shield:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/shield?sslmode=require"
-
 gcloud run deploy cipher-shield-api \
   --image=$IMAGE \
   --region=$REGION \
   --port=8080 \
   --vpc-connector=cipher-connector \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="SHIELD_MODE=enforce,DATABASE_URL=${DB_URL}" \
-  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
+  --set-env-vars="SHIELD_MODE=enforce" \
+  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest,DATABASE_URL=cipher-db-url:latest" \
   --allow-unauthenticated \
   --min-instances=1 \
   --max-instances=4
@@ -181,9 +184,11 @@ curl $API_URL/api/v1/health
 ## 10. Bootstrap the first admin user
 
 ```bash
+ADMIN_PASSWORD=$(openssl rand -hex 12)
+echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
 curl -X POST $API_URL/api/v1/users \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","password":"changeme","role":"admin"}'
+  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
 ```
 
 This endpoint is open when the users table is empty; the first user is forced to `admin`.
@@ -245,4 +250,5 @@ gcloud compute networks vpc-access connectors delete cipher-connector --region=$
 gcloud secrets delete cipher-jwt-secret -q
 gcloud secrets delete cipher-proxy-token -q
 gcloud secrets delete cipher-db-password -q
+gcloud secrets delete cipher-db-url -q
 ```
