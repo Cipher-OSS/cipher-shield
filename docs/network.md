@@ -95,7 +95,7 @@ If developers are behind a corporate HTTP proxy rather than an agent-based SWG, 
 
 ```sh
 export HTTPS_PROXY=http://proxy.yourcompany.com:8080
-export NO_PROXY=npm.yourcompany.com,pypi.yourcompany.com
+export NO_PROXY=shield.yourcompany.com,npm.yourcompany.com,pypi.yourcompany.com
 ```
 
 Adding cipher-shield's domains to `NO_PROXY` routes package manager traffic directly to cipher-shield, bypassing the corporate proxy. This is the recommended configuration — cipher-shield is already inspecting every package, so routing through an additional proxy is redundant.
@@ -122,3 +122,4 @@ If your network uses an egress firewall, cipher-shield's proxy containers need o
 | `pypi.org`, `files.pythonhosted.org` | PyPI package downloads |
 | `osv.dev` | CVE lookups (Tier 2) |
 | `api.anthropic.com` | Claude analysis (Tier 4, optional) |
+| `shield.yourcompany.com` | Proxy reporting scan results to API (Option B — local proxy only) |

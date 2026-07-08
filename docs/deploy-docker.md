@@ -56,9 +56,11 @@ curl http://<your-server>:8080/api/v1/health
 The first `POST /api/v1/users` request requires no authentication and creates an admin account. After that, the endpoint requires an admin JWT.
 
 ```sh
+ADMIN_PASSWORD=$(openssl rand -hex 12)
+echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
 curl -X POST http://<your-server>:8080/api/v1/users \
   -H "Content-Type: application/json" \
-  -d '{"email":"you@company.com","password":"changeme","role":"admin"}'
+  -d "{\"email\":\"you@company.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
 ```
 
 Open `http://<your-server>:8080` and log in.
@@ -130,10 +132,18 @@ SHIELD_CORS_ORIGIN=https://shield.yourcompany.com
 ## Teardown
 
 ```sh
+# Stop services, keep the database
+docker compose -f configs/docker-compose.yml down
+
+# Full teardown including database data (irreversible)
 docker compose -f configs/docker-compose.yml down -v
 ```
 
-The `-v` flag removes the Postgres volume. Omit it if you want to keep the database.
+---
+
+## Corporate proxies and secure web gateways
+
+If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, see **[Network and corporate proxy requirements →](network.md)** for the one-time policy changes needed to allow cipher-shield traffic through.
 
 ---
 

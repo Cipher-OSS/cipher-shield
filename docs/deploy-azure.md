@@ -4,6 +4,8 @@
 Managed containers — no VMs to manage, scales to zero when idle, auto-restarts on crash.  
 **Estimated cost:** ~$20–40/month at low traffic.
 
+> **Production deployments** — For a custom domain (`npm.yourcompany.com`) with a managed certificate, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+
 ---
 
 ## Prerequisites
@@ -165,9 +167,11 @@ curl https://$API_URL/api/v1/health
 ## 9. Bootstrap the first admin user
 
 ```bash
+ADMIN_PASSWORD=$(openssl rand -hex 12)
+echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
 curl -X POST https://$API_URL/api/v1/users \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","password":"changeme","role":"admin"}'
+  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
 ```
 
 This endpoint is open when the users table is empty; the first user is forced to `admin`.
