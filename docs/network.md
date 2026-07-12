@@ -9,16 +9,17 @@ cipher-shield's registry proxy receives `npm install` and `pip install` traffic 
 Developers point their package managers at your cipher-shield domain:
 
 ```
-npm install axios
-    │
-    ▼
-npm.yourcompany.com:443  (HTTPS)
-    │
-    ▼
-cipher-shield ALB / load balancer
-    │
-    ▼
-cipher-shield proxy (scans, then forwards to registry.npmjs.org)
+npm install axios        pip install requests
+         │                      │
+         └──────────┬───────────┘
+                    ▼
+     proxy.yourcompany.com:443  (HTTPS)
+                    │
+                    ▼
+     cipher-shield ALB / load balancer
+                    │
+                    ▼
+     cipher-shield proxy (scans, then forwards to registry.npmjs.org / pypi.org)
 ```
 
 Traffic uses standard HTTPS on port 443 with a valid TLS certificate. No non-standard ports, no plain HTTP.
@@ -35,7 +36,7 @@ Add your cipher-shield domain to the DNS allow list so Umbrella's DNS layer neve
 
 | Entry | Type |
 |---|---|
-| `yourcompany.com` (or the specific subdomain, e.g. `npm.yourcompany.com`) | Domain |
+| `yourcompany.com` (or the specific subdomain, e.g. `proxy.yourcompany.com`) | Domain |
 
 Navigate to: **Umbrella dashboard → Policies → DNS Policies → [your policy] → Allow List**
 
@@ -95,10 +96,10 @@ If developers are behind a corporate HTTP proxy rather than an agent-based SWG, 
 
 ```sh
 export HTTPS_PROXY=http://proxy.yourcompany.com:8080
-export NO_PROXY=shield.yourcompany.com,npm.yourcompany.com,pypi.yourcompany.com
+export NO_PROXY=shield.yourcompany.com,proxy.yourcompany.com
 ```
 
-Adding cipher-shield's domains to `NO_PROXY` routes package manager traffic directly to cipher-shield, bypassing the corporate proxy. This is the recommended configuration — cipher-shield is already inspecting every package, so routing through an additional proxy is redundant.
+Adding cipher-shield's domains to `NO_PROXY` routes package manager traffic directly to cipher-shield, bypassing the corporate proxy. This is the recommended configuration — cipher-shield is already inspecting every package, so routing through an additional proxy is redundant. Both npm and pip traffic share `proxy.yourcompany.com`, so a single `NO_PROXY` entry covers both.
 
 ---
 
