@@ -4,7 +4,7 @@
 Managed containers — no EC2 to patch, auto-restarts on crash, scales 1–4 tasks at 60% CPU.  
 **Estimated cost:** ~$35–60/month at low traffic.
 
-> **Production deployments** — For HTTPS, a custom domain (`npm.yourcompany.com`), and an Application Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+> **Production deployments** — For HTTPS, a custom domain (`proxy.yourcompany.com`), and an Application Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
 
 ---
 
@@ -345,7 +345,7 @@ npm config set registry http://$PROXY_IP:7070/
 pip config set global.index-url http://$PROXY_IP:7070/simple/
 ```
 
-> For production, use the [Terraform path](https://github.com/Cipher-OSS/cipher-shield-infra) which provisions an ALB, ACM certificate, and custom domain so developers use `https://npm.yourcompany.com` instead of a raw IP.
+> For production, use the [Terraform path](https://github.com/Cipher-OSS/cipher-shield-infra) which provisions an ALB, ACM certificate, and custom domain so developers use `https://proxy.yourcompany.com` instead of a raw IP.
 
 **Option B — local proxy reporting to central server**
 

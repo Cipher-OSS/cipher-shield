@@ -4,7 +4,7 @@
 Serverless containers — scales to zero when idle, auto-scales under load, fully managed.  
 **Estimated cost:** ~$15–30/month (Cloud Run billing is per-request when scaled to zero).
 
-> **Production deployments** — For a custom domain (`npm.yourcompany.com`) with a Google-managed certificate and Global Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+> **Production deployments** — For a custom domain (`proxy.yourcompany.com`) with a Google-managed certificate and Global Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
 
 ---
 

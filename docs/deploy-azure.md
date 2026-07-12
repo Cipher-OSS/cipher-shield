@@ -4,7 +4,7 @@
 Managed containers — no VMs to manage, scales to zero when idle, auto-restarts on crash.  
 **Estimated cost:** ~$20–40/month at low traffic.
 
-> **Production deployments** — For a custom domain (`npm.yourcompany.com`) with a managed certificate, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+> **Production deployments** — For a custom domain (`proxy.yourcompany.com`) with a managed certificate, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
 
 ---
 
