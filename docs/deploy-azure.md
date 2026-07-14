@@ -4,7 +4,25 @@
 Managed containers — no VMs to manage, scales to zero when idle, auto-restarts on crash.  
 **Estimated cost:** ~$20–40/month at low traffic.
 
-> **Production deployments** — For a custom domain (`proxy.yourcompany.com`) with a managed certificate, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    dev["💻 Developer\nnpm / pip"] -->|HTTPS| dns["Your DNS Provider"]
+    dns -->|"shield.yourdomain.com\nproxy.yourdomain.com"| aca["Azure Container Apps\nManaged Certificate · :443"]
+
+    subgraph azure [" Azure "]
+        aca --> api["Container App\ncipher-shield-api\n:8080"]
+        aca --> proxy["Container App\ncipher-shield-proxy\n:7070"]
+        proxy -->|scan results| api
+        api --> pg[("Azure DB\nPostgreSQL")]
+        api & proxy --> store["Container Apps\nSecret Store"]
+    end
+
+    proxy -->|HTTPS| reg["registry.npmjs.org\npypi.org · osv.dev"]
+```
 
 ---
 
@@ -12,6 +30,7 @@ Managed containers — no VMs to manage, scales to zero when idle, auto-restarts
 
 - Azure CLI installed and authenticated (`az login`)
 - An Azure subscription
+- A domain you control with access to add DNS records
 
 ---
 
@@ -24,6 +43,7 @@ export DB_SERVER=cipher-shield-db
 export DB_NAME=shield
 export DB_USER=shieldadmin
 export ACA_ENV=cipher-shield-env
+export DOMAIN=yourdomain.com   # replace with your domain
 ```
 
 ---
@@ -83,13 +103,18 @@ az containerapp env create \
   --name $ACA_ENV \
   --resource-group $RG \
   --location $LOCATION
+
+ENV_DOMAIN=$(az containerapp env show \
+  --name $ACA_ENV --resource-group $RG \
+  --query properties.defaultDomain --output tsv)
+echo "ENV_DOMAIN=$ENV_DOMAIN"
 ```
 
 ---
 
 ## 6. Deploy the API / dashboard (port 8080)
 
-Secrets are stored in Container Apps' encrypted secret store (not as plain environment variables):
+Secrets are stored in Container Apps' encrypted secret store, not as plain environment variables:
 
 ```bash
 DB_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
@@ -125,7 +150,7 @@ echo "API URL: https://$API_URL"
 
 ## 7. Deploy the package proxy (port 7070)
 
-The proxy runs the standalone `cipher-shield-proxy` binary from the same image. It does not connect to Postgres directly — it ships scan results to the API over HTTP. This is why Container Apps works here: the proxy only needs to reach the API service, not the database.
+The proxy runs the standalone `cipher-shield-proxy` binary from the same image — no direct database connection needed. It ships scan results to the API over HTTPS.
 
 ```bash
 az containerapp create \
@@ -178,26 +203,77 @@ This endpoint is open when the users table is empty; the first user is forced to
 
 ---
 
-## 10. Configure dev machines
+## 10. Map custom domains
+
+Azure Container Apps provisions a free Let's Encrypt certificate automatically once the CNAME records are in place. DNS must be added **before** running the bind commands, as Azure validates ownership via the CNAME during binding.
+
+**Get the CNAME targets:**
+
+```bash
+echo "Add these CNAME records to your DNS provider:"
+echo "  shield.${DOMAIN}  →  cipher-shield-api.${ENV_DOMAIN}"
+echo "  proxy.${DOMAIN}   →  cipher-shield-proxy.${ENV_DOMAIN}"
+```
+
+Add both records to your DNS provider and wait for propagation (typically 5–15 minutes). Then bind the managed certificates:
+
+```bash
+az containerapp hostname bind \
+  --hostname shield.${DOMAIN} \
+  --name cipher-shield-api \
+  --resource-group $RG \
+  --environment $ACA_ENV \
+  --validation-method CNAME
+
+az containerapp hostname bind \
+  --hostname proxy.${DOMAIN} \
+  --name cipher-shield-proxy \
+  --resource-group $RG \
+  --environment $ACA_ENV \
+  --validation-method CNAME
+```
+
+**Verify the bindings are active:**
+
+```bash
+az containerapp hostname list \
+  --name cipher-shield-api --resource-group $RG --output table
+
+az containerapp hostname list \
+  --name cipher-shield-proxy --resource-group $RG --output table
+```
+
+Both should show `bindingType: SniEnabled` when the certificate has been issued.
+
+**Update the proxy to use the stable custom domain:**
+
+```bash
+az containerapp update \
+  --name cipher-shield-proxy \
+  --resource-group $RG \
+  --set-env-vars \
+    SHIELD_MODE=enforce \
+    SHIELD_SERVER_URL=https://shield.${DOMAIN} \
+    SHIELD_PROXY_TOKEN=secretref:proxy-token
+```
+
+---
+
+## 11. Configure dev machines
 
 **Option A — centralized proxy (no cipher-shield install required on each machine):**
 
-Configure pip and npm on each developer's machine to use the cloud proxy URL directly:
-
 ```bash
-# pip
-pip config set global.index-url https://$PROXY_URL/simple/
-
-# npm
-npm config set registry https://$PROXY_URL/
+npm config set registry https://proxy.${DOMAIN}/
+pip config set global.index-url https://proxy.${DOMAIN}/simple/
 ```
 
-All installs will be intercepted and scanned at the cloud proxy. Results appear in the dashboard at `https://$API_URL`.
+Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard at `https://shield.${DOMAIN}` automatically.
 
-**Option B — local proxy (cipher-shield installed on each developer's machine):**
+**Option B — local proxy reporting to central server:**
 
 ```bash
-export SHIELD_SERVER_URL=https://$API_URL
+export SHIELD_SERVER_URL=https://shield.${DOMAIN}
 export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
 cipher-shield proxy start
 ```
@@ -231,7 +307,11 @@ If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, s
 ## Teardown
 
 ```bash
-az containerapp delete --name cipher-shield-api --resource-group $RG --yes
+az containerapp hostname delete \
+  --hostname shield.${DOMAIN} --name cipher-shield-api --resource-group $RG --yes
+az containerapp hostname delete \
+  --hostname proxy.${DOMAIN} --name cipher-shield-proxy --resource-group $RG --yes
+az containerapp delete --name cipher-shield-api   --resource-group $RG --yes
 az containerapp delete --name cipher-shield-proxy --resource-group $RG --yes
 az containerapp env delete --name $ACA_ENV --resource-group $RG --yes
 az postgres flexible-server delete --resource-group $RG --name $DB_SERVER --yes
