@@ -4,7 +4,29 @@
 Serverless containers — scales to zero when idle, auto-scales under load, fully managed.  
 **Estimated cost:** ~$15–30/month (Cloud Run billing is per-request when scaled to zero).
 
-> **Production deployments** — For a custom domain (`proxy.yourcompany.com`) with a Google-managed certificate and Global Load Balancer, use the Terraform in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra). This guide covers the manual CLI path for evaluation and testing.
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    dev["💻 Developer\nnpm / pip"] -->|HTTPS| dns["Your DNS Provider"]
+    dns -->|"shield.yourdomain.com\nproxy.yourdomain.com"| ghs["Google-managed\nHTTPS · Certificate"]
+
+    subgraph gcp [" GCP "]
+        ghs --> api["Cloud Run\ncipher-shield-api\n:8080"]
+        ghs --> proxy["Cloud Run\ncipher-shield-proxy\n:7070"]
+        proxy -->|scan results| api
+
+        subgraph vpc [" VPC (via connector) "]
+            api --> sql[("Cloud SQL\nPostgreSQL")]
+        end
+
+        api & proxy --> sm["Secret Manager"]
+    end
+
+    proxy -->|HTTPS| reg["registry.npmjs.org\npypi.org · osv.dev"]
+```
 
 ---
 
@@ -12,8 +34,9 @@ Serverless containers — scales to zero when idle, auto-scales under load, full
 
 - `gcloud` CLI installed and authenticated (`gcloud auth login`)
 - A GCP project with billing enabled
+- A domain you control with access to add DNS records
 
-Enable all required APIs, including `servicenetworking` (required for Cloud SQL private IP):
+Enable all required APIs:
 
 ```bash
 gcloud services enable \
@@ -33,6 +56,7 @@ export PROJECT_ID=$(gcloud config get-value project)
 export REGION=us-central1
 export SQL_INSTANCE=cipher-shield-pg
 export IMAGE=ghcr.io/cipher-oss/cipher-shield:latest
+export DOMAIN=yourdomain.com   # replace with your domain
 ```
 
 ---
@@ -56,7 +80,6 @@ echo -n "$DB_PASSWORD" | gcloud secrets create cipher-db-password --data-file=- 
 Cloud SQL private IP requires VPC peering between your VPC and Google's service network. This only needs to be done once per project.
 
 ```bash
-# Allocate an IP range for Google-managed services
 gcloud compute addresses create google-managed-services-default \
   --global \
   --purpose=VPC_PEERING \
@@ -64,7 +87,6 @@ gcloud compute addresses create google-managed-services-default \
   --network=default \
   --project=$PROJECT_ID
 
-# Create the VPC peering connection
 gcloud services vpc-peerings connect \
   --service=servicenetworking.googleapis.com \
   --ranges=google-managed-services-default \
@@ -72,7 +94,7 @@ gcloud services vpc-peerings connect \
   --project=$PROJECT_ID
 ```
 
-> If your project already has private service access configured, skip this step. The `gcloud sql instances create` command will error with a VPC peering message if it's missing.
+> If your project already has private service access configured, skip this step.
 
 ---
 
@@ -195,26 +217,81 @@ This endpoint is open when the users table is empty; the first user is forced to
 
 ---
 
-## 11. Configure dev machines
+## 11. Map custom domains
+
+Cloud Run domain mappings provision a Google-managed certificate automatically once DNS is pointed at Google's servers. No manual cert request needed.
+
+**Verify domain ownership** (one-time per root domain — adds a TXT record to your DNS):
+
+```bash
+gcloud domains verify $DOMAIN
+```
+
+Follow the prompts: add the TXT record shown to your DNS provider, then confirm in the CLI.
+
+**Create the domain mappings:**
+
+```bash
+gcloud run domain-mappings create \
+  --service cipher-shield-api \
+  --domain shield.${DOMAIN} \
+  --region $REGION
+
+gcloud run domain-mappings create \
+  --service cipher-shield-proxy \
+  --domain proxy.${DOMAIN} \
+  --region $REGION
+```
+
+**Get the DNS records to add:**
+
+```bash
+echo "=== shield.${DOMAIN} ==="
+gcloud run domain-mappings describe \
+  --domain shield.${DOMAIN} --region $REGION \
+  --format='table(status.resourceRecords[].name,status.resourceRecords[].type,status.resourceRecords[].rrdata)'
+
+echo "=== proxy.${DOMAIN} ==="
+gcloud run domain-mappings describe \
+  --domain proxy.${DOMAIN} --region $REGION \
+  --format='table(status.resourceRecords[].name,status.resourceRecords[].type,status.resourceRecords[].rrdata)'
+```
+
+Add the CNAME records shown (they point to `ghs.googlehosted.com`) to your DNS provider. Google provisions the SSL certificate automatically once DNS propagates — typically 10–20 minutes.
+
+**Check mapping status:**
+
+```bash
+gcloud run domain-mappings describe \
+  --domain shield.${DOMAIN} --region $REGION \
+  --format='value(status.conditions[].message)'
+```
+
+**Once both domains are active, update the proxy to use the stable custom domain:**
+
+```bash
+gcloud run services update cipher-shield-proxy \
+  --region=$REGION \
+  --update-env-vars="SHIELD_SERVER_URL=https://shield.${DOMAIN}"
+```
+
+---
+
+## 12. Configure dev machines
 
 **Option A — centralized proxy (no cipher-shield install required on each machine):**
 
-Configure pip and npm to use the Cloud Run proxy URL directly. Cloud Run provides HTTPS by default.
-
 ```bash
-# pip
-pip config set global.index-url $PROXY_URL/simple/
-
-# npm
-npm config set registry $PROXY_URL/
+npm config set registry https://proxy.${DOMAIN}/
+pip config set global.index-url https://proxy.${DOMAIN}/simple/
 ```
 
-All installs will be intercepted and scanned at the cloud proxy. Results appear in the dashboard at `$API_URL`.
+Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard at `https://shield.${DOMAIN}` automatically.
 
-**Option B — local proxy (cipher-shield installed on each developer's machine):**
+**Option B — local proxy reporting to central server:**
 
 ```bash
-export SHIELD_SERVER_URL=$API_URL
+export SHIELD_SERVER_URL=https://shield.${DOMAIN}
 export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
 cipher-shield proxy start
 ```
@@ -225,7 +302,7 @@ This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatica
 
 ## Scaling behavior
 
-Both services scale 1–4 instances based on request concurrency. Set `--min-instances=0` to enable scale-to-zero. Keep the proxy at `--min-instances=1` if you don't want cold start delays on `npm install` / `pip install`.
+Both services scale 1–4 instances based on request concurrency. Set `--min-instances=0` to enable scale-to-zero. Keep the proxy at `--min-instances=1` to avoid cold start delays on `npm install` / `pip install`.
 
 ```bash
 gcloud run services update cipher-shield-api \
@@ -243,12 +320,14 @@ If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, s
 ## Teardown
 
 ```bash
-gcloud run services delete cipher-shield-api  --region=$REGION -q
+gcloud run domain-mappings delete shield.${DOMAIN} --region=$REGION -q
+gcloud run domain-mappings delete proxy.${DOMAIN}  --region=$REGION -q
+gcloud run services delete cipher-shield-api   --region=$REGION -q
 gcloud run services delete cipher-shield-proxy --region=$REGION -q
 gcloud sql instances delete $SQL_INSTANCE -q
 gcloud compute networks vpc-access connectors delete cipher-connector --region=$REGION -q
-gcloud secrets delete cipher-jwt-secret -q
+gcloud secrets delete cipher-jwt-secret  -q
 gcloud secrets delete cipher-proxy-token -q
 gcloud secrets delete cipher-db-password -q
-gcloud secrets delete cipher-db-url -q
+gcloud secrets delete cipher-db-url      -q
 ```
