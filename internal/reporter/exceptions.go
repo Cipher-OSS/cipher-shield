@@ -45,7 +45,12 @@ func NewExceptionCache(serverURL, token string) *ExceptionCache {
 }
 
 // IsExcepted returns true if the package is on the server-managed exception list.
-// Version matching: an exception with an empty version matches any version.
+// Version matching rules:
+//   - A stored exception with empty version matches any requested version (wildcard).
+//   - A caller passing empty version (metadata/name-only check, version not yet known)
+//     matches any stored exception for that package — the tarball-level check will
+//     enforce version-specific exceptions once the version is known.
+//   - Otherwise an exact version match is required.
 func (c *ExceptionCache) IsExcepted(eco shield.Ecosystem, name, version string) bool {
 	if c == nil {
 		return false
@@ -56,7 +61,7 @@ func (c *ExceptionCache) IsExcepted(eco shield.Ecosystem, name, version string) 
 		if e.Ecosystem != eco || !strings.EqualFold(e.Name, name) {
 			continue
 		}
-		if e.Version == "" || e.Version == version {
+		if e.Version == "" || version == "" || e.Version == version {
 			return true
 		}
 	}
