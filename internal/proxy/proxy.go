@@ -301,9 +301,15 @@ func (p *Proxy) serve(conn net.Conn) {
 		if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
 			if p.cfg.Pipeline != nil {
 				pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name}
+				rep := p.cfg.Reporter
 				go func() {
-					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+					result, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil)
+					if err != nil {
 						log.Printf("[proxy] failed to record name-block for %s: %v", name, err)
+						return
+					}
+					if rep != nil {
+						rep.Report(result)
 					}
 				}()
 			}
@@ -544,9 +550,15 @@ func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
 		if p.shouldBlockName(context.Background(), shield.EcosystemPyPI, pkgName) {
 			if p.cfg.Pipeline != nil {
 				pkg := shield.PackageRef{Ecosystem: shield.EcosystemPyPI, Name: pkgName}
+				rep := p.cfg.Reporter
 				go func() {
-					if _, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil); err != nil {
+					result, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil)
+					if err != nil {
 						log.Printf("[proxy] failed to record name-block for %s: %v", pkgName, err)
+						return
+					}
+					if rep != nil {
+						rep.Report(result)
 					}
 				}()
 			}

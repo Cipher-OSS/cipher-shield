@@ -109,10 +109,16 @@ func (b *badlistAnalyzer) Analyze(_ context.Context, pkg shield.PackageRef, _ []
 		})
 	}
 
-	// Typosquatting check — only flag if edit distance <= 2 and name length >= 4
-	if len(findings) == 0 && len(pkg.Name) >= 4 {
+	// Typosquatting check — scale threshold with name length to avoid false
+	// positives on short names (e.g. gopd → got). Names < 8 chars need
+	// distance 1; longer names allow distance 2.
+	if len(findings) == 0 && len(pkg.Name) >= 5 {
 		target, dist := typosquatTarget(pkg.Name, string(pkg.Ecosystem))
-		if dist <= 2 && target != "" {
+		maxDist := 2
+		if len(pkg.Name) < 8 {
+			maxDist = 1
+		}
+		if dist <= maxDist && target != "" {
 			findings = append(findings, shield.Finding{
 				Type:     "typosquat",
 				Severity: shield.SeverityHigh,

@@ -216,7 +216,7 @@ func TestTyposquattingPyPI(t *testing.T) {
 
 func TestTyposquatSkippedForShortName(t *testing.T) {
 	a := New()
-	// len("px") = 2 < 4 — typosquat check must be skipped
+	// len("px") = 2 < 5 — typosquat check must be skipped
 	findings, err := a.Analyze(context.Background(), shield.PackageRef{
 		Ecosystem: shield.EcosystemNPM, Name: "px", Version: "1.0.0",
 	}, nil)
@@ -225,7 +225,24 @@ func TestTyposquatSkippedForShortName(t *testing.T) {
 	}
 	for _, f := range findings {
 		if f.Type == "typosquat" {
-			t.Error("typosquat check should be skipped for names shorter than 4 characters")
+			t.Error("typosquat check should be skipped for names shorter than 5 characters")
+		}
+	}
+}
+
+func TestTyposquatSkippedForFourCharName(t *testing.T) {
+	a := New()
+	// gopd is a legitimate 4-char package; edit distance 2 from "got" is a false positive.
+	// Names < 5 chars must not trigger the typosquat check.
+	findings, err := a.Analyze(context.Background(), shield.PackageRef{
+		Ecosystem: shield.EcosystemNPM, Name: "gopd", Version: "1.0.1",
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range findings {
+		if f.Type == "typosquat" {
+			t.Errorf("gopd should not be flagged as a typosquat: %s", f.Description)
 		}
 	}
 }
