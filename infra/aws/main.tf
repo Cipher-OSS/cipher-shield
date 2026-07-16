@@ -388,7 +388,8 @@ resource "aws_ecs_task_definition" "api" {
       { containerPort = 8080, protocol = "tcp" }
     ]
     environment = [
-      { name = "SHIELD_MODE", value = "enforce" }
+      { name = "SHIELD_MODE",        value = "enforce" },
+      { name = "SHIELD_CORS_ORIGIN", value = "https://shield.${var.domain}" }
     ]
     secrets = local.api_secrets
     logConfiguration = {

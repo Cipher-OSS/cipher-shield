@@ -53,7 +53,7 @@ variable "anthropic_api_key" {
 
 variable "image_tag" {
   description = "cipher-shield image tag to deploy"
-  default     = "0.1.4"
+  default     = "0.1.5"
 }
 
 # ── Enable required APIs ──────────────────────────────────────────────────────
@@ -283,7 +283,8 @@ resource "google_cloud_run_v2_service" "api" {
         container_port = 8080
       }
 
-      env { name = "SHIELD_MODE"; value = "enforce" }
+      env { name = "SHIELD_MODE";        value = "enforce" }
+      env { name = "SHIELD_CORS_ORIGIN"; value = "https://shield.${var.domain}" }
 
       env {
         name = "DATABASE_URL"

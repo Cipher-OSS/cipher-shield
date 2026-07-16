@@ -108,9 +108,11 @@ docker compose -f configs/docker-compose.yml up -d
 
 ---
 
-## HTTPS (recommended for production)
+## HTTPS (required for production)
 
-The dashboard and API run plain HTTP by default. For production deployments expose cipher-shield behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS termination, or pass a certificate directly:
+> **The proxy port (7070) transmits every package name your developers install.** Running it over plain HTTP exposes that traffic to passive observation and MITM attacks. Do not expose a plain HTTP proxy to anything outside a trusted LAN.
+
+Expose cipher-shield behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS termination, or pass a certificate directly:
 
 ```sh
 SHIELD_TLS_CERT=/etc/ssl/cipher-shield.crt \

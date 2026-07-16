@@ -41,45 +41,44 @@ cd infra/aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Fill in `terraform.tfvars`:
+Generate secrets and write `terraform.tfvars`:
 
-```hcl
+```bash
+cat > terraform.tfvars << EOF
+domain            = "yourdomain.com"
 db_password       = "$(openssl rand -hex 16)"
 jwt_secret        = "$(openssl rand -hex 32)"
 proxy_token       = "$(openssl rand -hex 32)"
-anthropic_api_key = ""        # optional — enables Claude SAST analysis
-image_tag         = "0.1.5"   # use the latest release tag
+anthropic_api_key = ""
+image_tag         = "0.1.5"
 aws_region        = "us-east-1"
+EOF
 ```
 
 > Save `terraform.tfvars` somewhere safe — these secrets are not recoverable after `terraform apply` without modifying the running infrastructure.
 
-**Step 1 — create the certificate, then add the DNS validation record:**
+**Step 1 — create the certificate and get the DNS validation record:**
 
 ```bash
 terraform init
 terraform apply -target=aws_acm_certificate.shield
 ```
 
-Terraform outputs the CNAME record needed for ACM DNS validation. Add it to your DNS provider, then wait for propagation before continuing.
+Terraform outputs a CNAME record under `acm_validation_records`. Add it to your DNS provider and wait for propagation before continuing — ACM won't issue the certificate until the record resolves.
 
-**Step 2 — deploy everything else:**
+**Step 2 — add the ALB DNS records, then deploy everything else:**
 
 ```bash
 terraform apply
 ```
 
-This creates the VPC, RDS, ECS services, ALB, and wires the certificate to the listener. Takes ~10 minutes (RDS dominates).
-
----
-
-## DNS
-
-After `terraform apply` completes, add two CNAME records pointing at the ALB:
+This creates the VPC, RDS, ECS services, and ALB (~10 minutes, RDS dominates). Once complete, get the ALB hostname:
 
 ```bash
 terraform output alb_dns_name
 ```
+
+Add two more CNAME records to your DNS provider (separate from the ACM validation record):
 
 | Record | Type | Value |
 |---|---|---|

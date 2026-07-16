@@ -48,7 +48,7 @@ variable "anthropic_api_key" {
 
 variable "image_tag" {
   description = "cipher-shield image tag to deploy"
-  default     = "0.1.4"
+  default     = "0.1.5"
 }
 
 # ── Resource Group ────────────────────────────────────────────────────────────
@@ -201,7 +201,8 @@ resource "azurerm_container_app" "api" {
       cpu    = 0.5
       memory = "1Gi"
 
-      env { name = "SHIELD_MODE"; value = "enforce" }
+      env { name = "SHIELD_MODE";        value = "enforce" }
+      env { name = "SHIELD_CORS_ORIGIN"; value = "https://shield.${var.domain}" }
       env { name = "SHIELD_JWT_SECRET";  secret_name = "jwt-secret" }
       env { name = "SHIELD_PROXY_TOKEN"; secret_name = "proxy-token" }
       env { name = "DATABASE_URL";       secret_name = "db-url" }

@@ -57,10 +57,22 @@ JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 16)
 
+# Save these now — they won't be shown again and are needed in later steps
+echo "JWT_SECRET=$JWT_SECRET"
+echo "PROXY_TOKEN=$PROXY_TOKEN"
+echo "DB_PASSWORD=$DB_PASSWORD"
+
 aws secretsmanager create-secret --region $AWS_REGION \
   --name $APP/jwt-secret --secret-string "$JWT_SECRET"
 aws secretsmanager create-secret --region $AWS_REGION \
   --name $APP/proxy-token --secret-string "$PROXY_TOKEN"
+
+# Capture full ARNs — AWS appends a random suffix (e.g. -PBDEw4) that must be
+# included in ECS task definitions; the base path alone will not work.
+JWT_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
+  --secret-id $APP/jwt-secret --query ARN --output text)
+PROXY_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
+  --secret-id $APP/proxy-token --query ARN --output text)
 ```
 
 ---
@@ -74,7 +86,7 @@ VPC_ID=$(aws ec2 describe-vpcs --region $AWS_REGION \
 
 SUBNETS=$(aws ec2 describe-subnets --region $AWS_REGION \
   --filters Name=vpc-id,Values=$VPC_ID \
-  --query 'Subnets[0:2].SubnetId' --output text | tr '\t' ',')
+  --query 'Subnets[*].SubnetId' --output text | tr '\t' ',')
 ```
 
 ---
@@ -119,7 +131,7 @@ aws rds create-db-subnet-group --region $AWS_REGION \
 aws rds create-db-instance --region $AWS_REGION \
   --db-instance-identifier $APP-pg \
   --db-instance-class db.t4g.micro \
-  --engine postgres --engine-version 16.3 \
+  --engine postgres --engine-version 16 \
   --master-username $DB_USER \
   --master-user-password "$DB_PASSWORD" \
   --db-name $DB_NAME \
@@ -139,6 +151,9 @@ DB_HOST=$(aws rds describe-db-instances --region $AWS_REGION \
 aws secretsmanager create-secret --region $AWS_REGION \
   --name $APP/db-url \
   --secret-string "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+
+DB_URL_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
+  --secret-id $APP/db-url --query ARN --output text)
 ```
 
 ---
@@ -293,9 +308,9 @@ cat > /tmp/task-api.json << EOF
       {"name": "SHIELD_MODE", "value": "enforce"}
     ],
     "secrets": [
-      {"name": "SHIELD_JWT_SECRET",  "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/jwt-secret"},
-      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/proxy-token"},
-      {"name": "DATABASE_URL",       "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/db-url"}
+      {"name": "SHIELD_JWT_SECRET",  "valueFrom": "${JWT_ARN}"},
+      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "${PROXY_ARN}"},
+      {"name": "DATABASE_URL",       "valueFrom": "${DB_URL_ARN}"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -354,7 +369,7 @@ cat > /tmp/task-proxy.json << EOF
       {"name": "SHIELD_SERVER_URL", "value": "https://shield.${DOMAIN}"}
     ],
     "secrets": [
-      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${APP}/proxy-token"}
+      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "${PROXY_ARN}"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -463,15 +478,19 @@ If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, s
 
 ## Teardown
 
+Delete in this order — resources must be removed before their dependencies.
+
 ```bash
-# Remove ECS services
+# Scale down then delete ECS services
+aws ecs update-service --region $AWS_REGION --cluster $APP --service ${APP}-api   --desired-count 0
+aws ecs update-service --region $AWS_REGION --cluster $APP --service ${APP}-proxy --desired-count 0
+aws ecs wait services-stable --region $AWS_REGION --cluster $APP \
+  --services ${APP}-api ${APP}-proxy
 aws ecs delete-service --region $AWS_REGION --cluster $APP --service ${APP}-api   --force
 aws ecs delete-service --region $AWS_REGION --cluster $APP --service ${APP}-proxy --force
-aws ecs wait services-inactive --region $AWS_REGION \
-  --cluster $APP --services ${APP}-api ${APP}-proxy
 aws ecs delete-cluster --region $AWS_REGION --cluster $APP
 
-# Remove load balancer (deletes all listeners and rules)
+# Remove load balancer and target groups
 aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region $AWS_REGION
 aws elbv2 wait load-balancers-deleted --load-balancer-arns $ALB_ARN --region $AWS_REGION
 aws elbv2 delete-target-group --target-group-arn $API_TG   --region $AWS_REGION
@@ -482,6 +501,7 @@ aws rds delete-db-instance --region $AWS_REGION \
   --db-instance-identifier $APP-pg --skip-final-snapshot
 aws rds wait db-instance-deleted --region $AWS_REGION \
   --db-instance-identifier $APP-pg
+aws rds delete-db-subnet-group --region $AWS_REGION --db-subnet-group-name $APP-subnets
 
 # Remove security groups (revoke cross-references first)
 aws ec2 revoke-security-group-ingress --region $AWS_REGION \
@@ -490,12 +510,19 @@ aws ec2 revoke-security-group-ingress --region $AWS_REGION \
   --group-id $TASK_SG --protocol tcp --port 8080 --source-group $ALB_SG
 aws ec2 revoke-security-group-ingress --region $AWS_REGION \
   --group-id $TASK_SG --protocol tcp --port 7070 --source-group $ALB_SG
-aws ec2 delete-security-group --region $AWS_REGION --group-id $ALB_SG
-aws ec2 delete-security-group --region $AWS_REGION --group-id $TASK_SG
 aws ec2 delete-security-group --region $AWS_REGION --group-id $DB_SG
+aws ec2 delete-security-group --region $AWS_REGION --group-id $TASK_SG
+aws ec2 delete-security-group --region $AWS_REGION --group-id $ALB_SG
 
-# Remove certificate and secrets
+# Remove IAM role and policies
+aws iam detach-role-policy --role-name $APP-exec-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+aws iam delete-role-policy --role-name $APP-exec-role --policy-name secrets-read
+aws iam delete-role --role-name $APP-exec-role
+
+# Remove certificate, log group, and secrets
 aws acm delete-certificate --certificate-arn $CERT_ARN --region $AWS_REGION
+aws logs delete-log-group --region $AWS_REGION --log-group-name /ecs/$APP
 aws secretsmanager delete-secret --region $AWS_REGION \
   --secret-id $APP/jwt-secret  --force-delete-without-recovery
 aws secretsmanager delete-secret --region $AWS_REGION \

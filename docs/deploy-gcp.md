@@ -1,4 +1,6 @@
-# Deploying cipher-shield on GCP
+# Deploying cipher-shield on GCP (manual CLI)
+
+> **Prefer Terraform?** See [deploy-gcp-terraform.md](deploy-gcp-terraform.md) for a shorter, repeatable path using `terraform apply`.
 
 **Architecture:** Cloud Run + Cloud SQL PostgreSQL.  
 Serverless containers — scales to zero when idle, auto-scales under load, fully managed.  
@@ -33,6 +35,7 @@ flowchart LR
 ## Prerequisites
 
 - `gcloud` CLI installed and authenticated (`gcloud auth login`)
+- [`jq`](https://jqlang.github.io/jq/download/) installed (used to parse Cloud SQL private IP)
 - A GCP project with billing enabled
 - A domain you control with access to add DNS records
 
@@ -67,6 +70,11 @@ export DOMAIN=yourdomain.com   # replace with your domain
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 16)
+
+# Save these now — they won't be shown again
+echo "JWT_SECRET=$JWT_SECRET"
+echo "PROXY_TOKEN=$PROXY_TOKEN"
+echo "DB_PASSWORD=$DB_PASSWORD"
 
 echo -n "$JWT_SECRET"  | gcloud secrets create cipher-jwt-secret  --data-file=- --project=$PROJECT_ID
 echo -n "$PROXY_TOKEN" | gcloud secrets create cipher-proxy-token --data-file=- --project=$PROJECT_ID
@@ -198,7 +206,7 @@ echo "Proxy URL: $PROXY_URL"
 
 ```bash
 curl $API_URL/api/v1/health
-# {"status":"ok","version":"0.1.4"}
+# {"status":"ok","version":"0.1.5"}
 ```
 
 ---
@@ -293,7 +301,7 @@ Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on t
 ```bash
 export SHIELD_SERVER_URL=https://shield.${DOMAIN}
 export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
-cipher-shield proxy start
+cipher-shield-proxy
 ```
 
 This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. If using this option, the proxy Cloud Run service (step 8) is optional.

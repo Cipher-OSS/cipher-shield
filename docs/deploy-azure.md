@@ -1,4 +1,6 @@
-# Deploying cipher-shield on Azure
+# Deploying cipher-shield on Azure (manual CLI)
+
+> **Prefer Terraform?** See [deploy-azure-terraform.md](deploy-azure-terraform.md) for a shorter, repeatable path using `terraform apply`.
 
 **Architecture:** Azure Container Apps + Azure Database for PostgreSQL.  
 Managed containers — no VMs to manage, scales to zero when idle, auto-restarts on crash.  
@@ -62,6 +64,11 @@ az group create --name $RG --location $LOCATION
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 16)
+
+# Save these now — they won't be shown again
+echo "JWT_SECRET=$JWT_SECRET"
+echo "PROXY_TOKEN=$PROXY_TOKEN"
+echo "DB_PASSWORD=$DB_PASSWORD"
 ```
 
 ---
@@ -92,7 +99,7 @@ DB_HOST=$(az postgres flexible-server show \
 echo "DB_HOST=$DB_HOST"
 ```
 
-> `--public-access 0.0.0.0` allows connections from any Azure service. For production, use VNet integration to restrict access to only your Container Apps environment.
+> `--public-access 0.0.0.0` allows connections from any Azure service across all subscriptions. This is acceptable for a quick test but should not be used in production — use the Terraform path instead, which provisions PostgreSQL inside a private VNet with no public access.
 
 ---
 
@@ -184,7 +191,7 @@ echo "Proxy URL: https://$PROXY_URL"
 
 ```bash
 curl https://$API_URL/api/v1/health
-# {"status":"ok","version":"0.1.4"}
+# {"status":"ok","version":"0.1.5"}
 ```
 
 ---
@@ -275,7 +282,7 @@ Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on t
 ```bash
 export SHIELD_SERVER_URL=https://shield.${DOMAIN}
 export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
-cipher-shield proxy start
+cipher-shield-proxy
 ```
 
 This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. No need to deploy the proxy Container App (step 7) if using this option.
