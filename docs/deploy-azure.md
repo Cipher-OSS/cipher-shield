@@ -282,7 +282,7 @@ Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on t
 ```bash
 export SHIELD_SERVER_URL=https://shield.${DOMAIN}
 export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
-cipher-shield-proxy
+cipher-shield proxy start
 ```
 
 This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. No need to deploy the proxy Container App (step 7) if using this option.

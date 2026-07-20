@@ -87,29 +87,7 @@ The dashboard is served at `:8080` alongside the REST API. The registry proxy ru
 
 ## Deployment
 
-cipher-shield can be deployed three ways depending on your team size and infrastructure requirements.
-
-### Developer workstation
-
-The fastest way to get started. Installs a local proxy that screens all `npm install` and `pip install` commands on a single machine. Scan results stay local unless a central server is configured.
-
-**macOS / Linux**
-```sh
-export ANTHROPIC_API_KEY=sk-ant-...   # optional — enables Tier 4
-curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.sh | sh
-cipher-shield proxy start
-```
-
-**Windows (PowerShell)**
-```powershell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."   # optional — enables Tier 4
-irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.ps1 | iex
-cipher-shield proxy start
-```
-
-The proxy configures npm and pip automatically and runs on `127.0.0.1:7070`. Stop it with `cipher-shield proxy stop`.
-
----
+cipher-shield can be deployed two ways depending on your team size and infrastructure requirements.
 
 ### Self-hosted team server (Docker)
 
@@ -123,55 +101,13 @@ See **[Self-hosted deployment guide →](docs/deploy-docker.md)**
 
 ### Cloud deployment
 
-Deploy cipher-shield into your existing cloud infrastructure using the provided Terraform. Each guide covers networking, database, container deployment, first-user bootstrap, and teardown.
+Deploy cipher-shield into your existing cloud infrastructure. Terraform modules are included in `infra/`. Each guide covers networking, database, container deployment, first-user bootstrap, and teardown.
 
-| Cloud | Guide | Architecture | Est. cost |
-|---|---|---|---|
-| AWS | [docs/deploy-aws.md](docs/deploy-aws.md) | ECS Fargate + RDS PostgreSQL | ~$35–60/mo |
-| GCP | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15–30/mo |
-| Azure | [docs/deploy-azure.md](docs/deploy-azure.md) | Container Apps + PostgreSQL Flexible Server | ~$20–40/mo |
-
-Terraform files are in [cipher-shield-infra](https://github.com/Cipher-OSS/cipher-shield-infra).
-
----
-
-## CI integration
-
-Scan your lockfile in CI before merging. cipher-shield exits `2` on any blocked package, failing the pipeline automatically.
-
-```yaml
-# GitHub Actions
-- name: Scan dependencies
-  run: |
-    curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/install.sh | sh
-    cipher-shield scan lockfile package-lock.json
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-Exit codes: `0` clean, `1` warnings, `2` blocked. Supported lockfiles: `package-lock.json`, `yarn.lock`, `requirements.txt`, `poetry.lock`.
-
----
-
-## CLI reference
-
-```sh
-# Proxy
-cipher-shield proxy start [--addr 127.0.0.1:7070]   # start proxy, configure npm + pip
-cipher-shield proxy stop                              # stop proxy, restore npm + pip
-cipher-shield proxy status                            # show proxy status
-
-# Scan
-cipher-shield scan lockfile <file>                    # scan lockfile (Tier 1+2, fast)
-cipher-shield scan package <name@version>             # scan package (all tiers)
-  --ecosystem npm|pypi
-
-# Explain
-cipher-shield explain <name[@version]>                # show full findings for a package
-
-# Update
-cipher-shield update                                  # fetch latest known-bad list from GitHub
-```
+| Cloud | Terraform | Manual CLI | Architecture | Est. cost |
+|---|---|---|---|---|
+| AWS | [deploy-aws.md](docs/deploy-aws.md) | [deploy-aws-manual.md](docs/deploy-aws-manual.md) | ECS Fargate + RDS PostgreSQL | ~$50–80/mo |
+| GCP | [deploy-gcp-terraform.md](docs/deploy-gcp-terraform.md) | [deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15–30/mo |
+| Azure | [deploy-azure-terraform.md](docs/deploy-azure-terraform.md) | [deploy-azure.md](docs/deploy-azure.md) | Container Apps + PostgreSQL Flexible Server | ~$20–40/mo |
 
 ---
 
@@ -201,11 +137,11 @@ curl -X POST http://<your-server>:8080/api/v1/exceptions \
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Enables Claude Opus analysis (Tier 4). Without it, only Tiers 1–3 run. |
 | `SHIELD_MODE` | `enforce` | `enforce` blocks malicious packages. `warn` logs but never blocks. `audit` is fully transparent. Start with `warn` to validate before enforcing. |
-| `SHIELD_PROXY_ADDR` | `:7070` (server), `127.0.0.1:7070` (CLI) | Registry proxy listen address. Server binary binds all interfaces; CLI dev proxy binds loopback only. |
+| `SHIELD_PROXY_ADDR` | `:7070` | Registry proxy listen address. |
 | `SHIELD_API_ADDR` | `:8080` | Dashboard + API listen address (server binary only). |
 | `SHIELD_JWT_SECRET` | — | Secret for signing dashboard JWTs. Required for auth. Generate with `openssl rand -hex 32`. |
 | `SHIELD_PROXY_TOKEN` | — | Pre-shared token authenticating dev proxies to the central server. Generate with `openssl rand -hex 32`. |
-| `SHIELD_SERVER_URL` | — | URL of the central server. When set, the local proxy ships results and syncs exceptions. |
+| `SHIELD_SERVER_URL` | — | URL of the central server. Used by the standalone proxy to ship results and sync exceptions. |
 | `SHIELD_TLS_CERT` | — | Path to TLS cert. Enables HTTPS on the API/dashboard port when set with `SHIELD_TLS_KEY`. |
 | `SHIELD_TLS_KEY` | — | Path to TLS private key. |
 | `SHIELD_PROXY_TLS_CERT` | — | Path to TLS cert for the proxy port (7070). Enables HTTPS on the proxy when set with `SHIELD_PROXY_TLS_KEY`. |
@@ -249,9 +185,8 @@ All authenticated endpoints require `Authorization: Bearer <token>`. Obtain a to
 ```sh
 git clone https://github.com/cipher-oss/cipher-shield
 cd cipher-shield
-go build ./cmd/shield     # CLI + local proxy
 go build ./cmd/server     # team server (proxy + API + dashboard)
-go build ./cmd/proxy      # standalone proxy (no dashboard)
+go build ./cmd/proxy      # standalone proxy (reports to server, no dashboard)
 ```
 
 Requires Go 1.26+. CGO must be enabled (`go-sqlite3` requires it).
@@ -262,7 +197,6 @@ Requires Go 1.26+. CGO must be enabled (`go-sqlite3` requires it).
 
 ```
 cmd/
-  shield/       CLI binary — scan commands + local proxy start/stop/status
   server/       Team server — registry proxy + REST API + web dashboard
   proxy/        Standalone proxy — lightweight, reports to server, no dashboard
 
@@ -274,25 +208,10 @@ internal/
     heuristic/  Tarball scoring — pattern matching on install scripts + source
     claude/     Claude Opus deep analysis + finding expander
   proxy/        HTTP proxy — intercepts npm/pip metadata and tarball requests
-  proxyctl/     PID management, npm/pip registry config save/restore
+  proxyctl/     npm/pip registry config management
   reporter/     Ships scan results to central server; caches exception list (60s)
   lockfile/     Parsers: package-lock.json, yarn.lock, requirements.txt, poetry.lock
   db/           Store interface — SQLite (local/dev) + Postgres (team/production)
   api/          REST API handlers, JWT auth, rate limiting
 ```
 
----
-
-## Uninstall
-
-**macOS / Linux**
-```sh
-curl -fsSL https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.sh | sh
-```
-
-**Windows**
-```powershell
-irm https://raw.githubusercontent.com/cipher-oss/cipher-shield/master/uninstall.ps1 | iex
-```
-
-Removes the binary, stops the daemon, and restores your original npm/pip registry configuration.
