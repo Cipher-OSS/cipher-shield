@@ -46,7 +46,7 @@ Verify it's running:
 
 ```sh
 curl http://<your-server>:8080/api/v1/health
-# {"status":"ok","version":"0.1.4"}
+# {"status":"ok","version":"0.1.5"}
 ```
 
 ---
@@ -69,26 +69,16 @@ Open `http://<your-server>:8080` and log in.
 
 ## 4. Configure developer machines
 
-**Option A — centralized proxy (no local install required)**
+> **Complete the HTTPS section below before pointing developer machines at the server.** The proxy port transmits every package name your developers install — plain HTTP exposes that traffic to passive observation and MITM attacks.
 
 Point npm and pip directly at the server. All installs are intercepted and scanned at the server.
 
 ```sh
-npm config set registry http://<your-server>:7070
-pip config set global.index-url http://<your-server>:7070/simple/
+npm config set registry https://proxy.yourdomain.com/
+pip config set global.index-url https://proxy.yourdomain.com/simple/
 ```
 
-Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard automatically.
-
-**Option B — local proxy reporting to central server**
-
-Developers install cipher-shield locally. The local proxy handles interception; results are shipped to the central server for dashboard visibility and exception sync.
-
-```sh
-export SHIELD_SERVER_URL=http://<your-server>:8080
-export SHIELD_PROXY_TOKEN=<the token from step 1>
-cipher-shield proxy start
-```
+Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard at `https://shield.yourdomain.com` automatically.
 
 ---
 
@@ -112,20 +102,21 @@ docker compose -f configs/docker-compose.yml up -d
 
 > **The proxy port (7070) transmits every package name your developers install.** Running it over plain HTTP exposes that traffic to passive observation and MITM attacks. Do not expose a plain HTTP proxy to anything outside a trusted LAN.
 
-Expose cipher-shield behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS termination, or pass a certificate directly:
+Expose cipher-shield behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS termination, or pass a certificate directly. Either way, restart with `SHIELD_CORS_ORIGIN` set so the dashboard can make API calls from the browser:
 
 ```sh
+SHIELD_MODE=warn \
+SHIELD_JWT_SECRET=$SHIELD_JWT_SECRET \
+SHIELD_PROXY_TOKEN=$SHIELD_PROXY_TOKEN \
+DB_PASSWORD=$DB_PASSWORD \
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+SHIELD_CORS_ORIGIN=https://shield.yourdomain.com \
 SHIELD_TLS_CERT=/etc/ssl/cipher-shield.crt \
 SHIELD_TLS_KEY=/etc/ssl/cipher-shield.key \
-...
 docker compose -f configs/docker-compose.yml up -d
 ```
 
-Once HTTPS is enabled, lock CORS:
-
-```sh
-SHIELD_CORS_ORIGIN=https://shield.yourcompany.com
-```
+If you're terminating TLS at a reverse proxy instead, omit `SHIELD_TLS_CERT` and `SHIELD_TLS_KEY` — but still set `SHIELD_CORS_ORIGIN` to your dashboard's public URL.
 
 > The proxy port (7070) should remain on your internal network or VPN — do not expose it to the public internet without TLS.
 
@@ -151,6 +142,5 @@ If your organization runs Cisco Umbrella, Zscaler, Netskope, or a similar SWG, s
 
 ## Next steps
 
-- [Configure exceptions](../README.md#exceptions) for known-safe internal packages
-- [CI integration](../README.md#ci-integration) — scan lockfiles in your pipeline
+- [Configure exceptions](../README.md#exceptions) — allow known-safe internal packages
 - [API reference](../README.md#api) — automate exception management or query scan history
