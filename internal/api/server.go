@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-const apiVersion = "0.1.4"
+const apiVersion = "0.1.5"
 
 // Scanner is the minimal interface the API needs from the pipeline.
 type Scanner interface {

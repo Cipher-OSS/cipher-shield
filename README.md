@@ -151,6 +151,8 @@ curl -X POST http://<your-server>:8080/api/v1/exceptions \
 | `DATABASE_URL` | — | Postgres DSN (`postgres://user:pass@host:5432/shield`). When set, uses Postgres instead of SQLite. |
 | `SHIELD_HISTORY_DAYS` | `30` | Days of scan history to retain. `0` keeps forever. |
 | `SHIELD_KNOWN_BAD_PATH` | — | Path to a local `known_bad.json` override. Takes precedence over the embedded list. |
+| `SHIELD_KNOWN_BAD_URL` | — | URL to fetch `known_bad.json` from at startup and on each refresh interval. When set, the server keeps the list current without redeployment. |
+| `SHIELD_KNOWN_BAD_REFRESH` | `24h` | How often to re-fetch from `SHIELD_KNOWN_BAD_URL`. Accepts Go duration strings (`12h`, `6h`). |
 
 ---
 

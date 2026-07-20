@@ -27,20 +27,23 @@ import (
 var version = "dev"
 
 func main() {
-	proxyAddr      := flag.String("proxy-addr",       envOr("SHIELD_PROXY_ADDR",       ":7070"),          "Registry proxy listen address")
-	apiAddr        := flag.String("api-addr",         envOr("SHIELD_API_ADDR",         ":8080"),          "API + dashboard listen address")
-	dbURL          := flag.String("db",               envOr("DATABASE_URL",             ""),              "Postgres DSN (leave empty for SQLite)")
-	dbPath         := flag.String("db-path",          envOr("SHIELD_DB_PATH",           defaultDBPath()),  "SQLite file path")
-	mode           := flag.String("mode",             envOr("SHIELD_MODE",              "enforce"),       "enforce | warn | audit")
-	anthropicKey   := flag.String("anthropic-key",    envOr("ANTHROPIC_API_KEY",       ""),              "Anthropic API key (enables Claude analysis)")
-	jwtSecret      := flag.String("jwt-secret",       envOr("SHIELD_JWT_SECRET",       ""),              "JWT signing secret")
-	proxyToken     := flag.String("proxy-token",      envOr("SHIELD_PROXY_TOKEN",      ""),              "Pre-shared token for proxy agent reporting")
-	tlsCert        := flag.String("tls-cert",         envOr("SHIELD_TLS_CERT",         ""),              "Path to TLS certificate file (enables HTTPS on API port)")
-	tlsKey         := flag.String("tls-key",          envOr("SHIELD_TLS_KEY",          ""),              "Path to TLS private key file")
-	proxyTLSCert   := flag.String("proxy-tls-cert",   envOr("SHIELD_PROXY_TLS_CERT",   ""),              "Path to TLS cert for the proxy port (enables HTTPS on port 7070)")
-	proxyTLSKey    := flag.String("proxy-tls-key",    envOr("SHIELD_PROXY_TLS_KEY",    ""),              "Path to TLS key for the proxy port")
-	corsOrigin     := flag.String("cors-origin",      envOr("SHIELD_CORS_ORIGIN",      ""),              "Allowed CORS origin (e.g. https://shield.company.com); default: *")
-	historyDays    := flag.Int("history-days",        envOrInt("SHIELD_HISTORY_DAYS", 30),               "Days of scan history to retain (0 = keep forever)")
+	proxyAddr      := flag.String("proxy-addr",          envOr("SHIELD_PROXY_ADDR",          ":7070"),         "Registry proxy listen address")
+	apiAddr        := flag.String("api-addr",            envOr("SHIELD_API_ADDR",            ":8080"),         "API + dashboard listen address")
+	dbURL          := flag.String("db",                  envOr("DATABASE_URL",               ""),             "Postgres DSN (leave empty for SQLite)")
+	dbPath         := flag.String("db-path",             envOr("SHIELD_DB_PATH",             defaultDBPath()), "SQLite file path")
+	mode           := flag.String("mode",                envOr("SHIELD_MODE",                "enforce"),      "enforce | warn | audit")
+	anthropicKey   := flag.String("anthropic-key",       envOr("ANTHROPIC_API_KEY",          ""),             "Anthropic API key (enables Claude analysis)")
+	jwtSecret      := flag.String("jwt-secret",          envOr("SHIELD_JWT_SECRET",          ""),             "JWT signing secret")
+	proxyToken     := flag.String("proxy-token",         envOr("SHIELD_PROXY_TOKEN",         ""),             "Pre-shared token for proxy agent reporting")
+	tlsCert        := flag.String("tls-cert",            envOr("SHIELD_TLS_CERT",            ""),             "Path to TLS certificate file (enables HTTPS on API port)")
+	tlsKey         := flag.String("tls-key",             envOr("SHIELD_TLS_KEY",             ""),             "Path to TLS private key file")
+	proxyTLSCert   := flag.String("proxy-tls-cert",      envOr("SHIELD_PROXY_TLS_CERT",      ""),             "Path to TLS cert for the proxy port (enables HTTPS on port 7070)")
+	proxyTLSKey    := flag.String("proxy-tls-key",       envOr("SHIELD_PROXY_TLS_KEY",       ""),             "Path to TLS key for the proxy port")
+	corsOrigin     := flag.String("cors-origin",         envOr("SHIELD_CORS_ORIGIN",         ""),             "Allowed CORS origin (e.g. https://shield.company.com); default: *")
+	historyDays    := flag.Int("history-days",           envOrInt("SHIELD_HISTORY_DAYS", 30),                 "Days of scan history to retain (0 = keep forever)")
+	knownBadPath   := flag.String("known-bad-path",      envOr("SHIELD_KNOWN_BAD_PATH",      ""),             "Path to a local known_bad.json override")
+	knownBadURL    := flag.String("known-bad-url",       envOr("SHIELD_KNOWN_BAD_URL",       ""),             "URL to fetch known_bad.json from (enables auto-refresh)")
+	knownBadRefresh := flag.Duration("known-bad-refresh", envOrDuration("SHIELD_KNOWN_BAD_REFRESH", 24*time.Hour), "How often to refresh the known-bad list from SHIELD_KNOWN_BAD_URL")
 	flag.Parse()
 
 	// Reject partial TLS configuration — both cert and key must be set together.
@@ -89,7 +92,10 @@ func main() {
 		log.Printf("[startup] Claude analysis disabled (set ANTHROPIC_API_KEY to enable)")
 	}
 
-	bl := badlist.NewFull("")
+	bl := badlist.NewLive(*knownBadPath)
+	if *knownBadURL != "" {
+		bl.StartAutoRefresh(context.Background(), *knownBadURL, *knownBadRefresh)
+	}
 	pl := pipeline.New(
 		store,
 		cfg,
@@ -189,6 +195,15 @@ func envOrInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func envOrDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return fallback

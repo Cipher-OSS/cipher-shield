@@ -9,19 +9,23 @@
 //
 // Environment variables (all optional):
 //
-//	SHIELD_PROXY_ADDR      proxy listen address (default :7070)
-//	SHIELD_MODE            enforce | warn | audit (default enforce)
-//	ANTHROPIC_API_KEY      enables Claude Opus analysis
-//	SHIELD_SERVER_URL      central server to report results to + sync exceptions from
-//	SHIELD_PROXY_TOKEN     bearer token for central server
-//	SHIELD_KNOWN_BAD_PATH  override path for known_bad.json
+//	SHIELD_PROXY_ADDR        proxy listen address (default :7070)
+//	SHIELD_MODE              enforce | warn | audit (default enforce)
+//	ANTHROPIC_API_KEY        enables Claude Opus analysis
+//	SHIELD_SERVER_URL        central server to report results to + sync exceptions from
+//	SHIELD_PROXY_TOKEN       bearer token for central server
+//	SHIELD_KNOWN_BAD_PATH    override path for known_bad.json
+//	SHIELD_KNOWN_BAD_URL     URL to fetch known_bad.json from (enables auto-refresh)
+//	SHIELD_KNOWN_BAD_REFRESH how often to refresh (default 24h)
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/cipher-oss/cipher-shield/internal/analyzer"
 	"github.com/cipher-oss/cipher-shield/internal/analyzer/badlist"
@@ -37,13 +41,15 @@ import (
 var version = "dev"
 
 func main() {
-	addr         := flag.String("addr",          envOr("SHIELD_PROXY_ADDR",     ":7070"),  "Proxy listen address")
-	mode         := flag.String("mode",          envOr("SHIELD_MODE",           "enforce"), "enforce | warn | audit")
-	anthropicKey := flag.String("anthropic-key", envOr("ANTHROPIC_API_KEY",    ""),        "Anthropic API key (enables Claude analysis)")
-	serverURL    := flag.String("server",        envOr("SHIELD_SERVER_URL",    ""),        "Central server URL (enables result reporting + exception sync)")
-	token        := flag.String("token",         envOr("SHIELD_PROXY_TOKEN",   ""),        "Bearer token for central server")
-	dbPath       := flag.String("db",            envOr("SHIELD_DB_PATH",       defaultDBPath()), "SQLite cache path")
-	knownBadPath := flag.String("known-bad",     envOr("SHIELD_KNOWN_BAD_PATH", ""),      "Override path for known_bad.json")
+	addr             := flag.String("addr",             envOr("SHIELD_PROXY_ADDR",          ":7070"),         "Proxy listen address")
+	mode             := flag.String("mode",             envOr("SHIELD_MODE",                "enforce"),      "enforce | warn | audit")
+	anthropicKey     := flag.String("anthropic-key",    envOr("ANTHROPIC_API_KEY",          ""),             "Anthropic API key (enables Claude analysis)")
+	serverURL        := flag.String("server",           envOr("SHIELD_SERVER_URL",          ""),             "Central server URL (enables result reporting + exception sync)")
+	token            := flag.String("token",            envOr("SHIELD_PROXY_TOKEN",         ""),             "Bearer token for central server")
+	dbPath           := flag.String("db",               envOr("SHIELD_DB_PATH",             defaultDBPath()), "SQLite cache path")
+	knownBadPath     := flag.String("known-bad",        envOr("SHIELD_KNOWN_BAD_PATH",      ""),             "Override path for known_bad.json")
+	knownBadURL      := flag.String("known-bad-url",    envOr("SHIELD_KNOWN_BAD_URL",       ""),             "URL to fetch known_bad.json from (enables auto-refresh)")
+	knownBadRefresh  := flag.Duration("known-bad-refresh", envOrDuration("SHIELD_KNOWN_BAD_REFRESH", 24*time.Hour), "How often to refresh the known-bad list")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -66,7 +72,10 @@ func main() {
 	cfg := pipeline.DefaultConfig()
 	cfg.Mode = *mode
 
-	bl := badlist.NewWithOverride(*knownBadPath)
+	bl := badlist.NewLive(*knownBadPath)
+	if *knownBadURL != "" {
+		bl.StartAutoRefresh(context.Background(), *knownBadURL, *knownBadRefresh)
+	}
 
 	var claudeAn analyzer.Analyzer
 	if *anthropicKey != "" {
@@ -113,6 +122,15 @@ func defaultDBPath() string {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envOrDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
 	}
 	return fallback
 }

@@ -5,11 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
-	analyzer "github.com/cipher-oss/cipher-shield/internal/analyzer"
 	shield "github.com/cipher-oss/cipher-shield/internal"
+	analyzer "github.com/cipher-oss/cipher-shield/internal/analyzer"
 )
 
 //go:embed data/known_bad.json
@@ -41,18 +46,92 @@ type FullAnalyzer interface {
 
 // New loads the embedded known-bad list and returns an Analyzer.
 func New() analyzer.Analyzer {
-	return NewWithOverride("")
+	return NewLive("")
 }
 
 // NewFull returns a FullAnalyzer (Analyzer + RawJSON) with an optional override path.
+// The returned *liveAnalyzer supports StartAutoRefresh for periodic updates.
 func NewFull(overridePath string) FullAnalyzer {
-	return newBadlist(overridePath)
+	return NewLive(overridePath)
 }
 
 // NewWithOverride loads from overridePath if the file exists, otherwise falls
 // back to the embedded list. Pass "" to always use the embedded list.
 func NewWithOverride(overridePath string) analyzer.Analyzer {
-	return newBadlist(overridePath)
+	return NewLive(overridePath)
+}
+
+// NewLive returns a thread-safe FullAnalyzer. Call StartAutoRefresh to enable
+// periodic background updates from a remote URL.
+func NewLive(overridePath string) *liveAnalyzer {
+	return &liveAnalyzer{current: newBadlist(overridePath)}
+}
+
+// liveAnalyzer wraps badlistAnalyzer with a RWMutex to allow atomic live swaps
+// while concurrent Analyze calls are in flight.
+type liveAnalyzer struct {
+	mu      sync.RWMutex
+	current *badlistAnalyzer
+}
+
+// StartAutoRefresh fetches url immediately at startup, then re-fetches every
+// interval. On any failure it logs and keeps the existing list (fail safe).
+// Stops when ctx is cancelled.
+func (l *liveAnalyzer) StartAutoRefresh(ctx context.Context, url string, interval time.Duration) {
+	if err := l.fetchAndSwap(url); err != nil {
+		log.Printf("[badlist] initial fetch from %s failed: %v (using embedded list)", url, err)
+	} else {
+		l.mu.RLock()
+		npm, pypi := len(l.current.npm), len(l.current.pypi)
+		l.mu.RUnlock()
+		log.Printf("[badlist] loaded %d npm + %d pypi entries from %s", npm, pypi, url)
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := l.fetchAndSwap(url); err != nil {
+					log.Printf("[badlist] refresh failed: %v (keeping existing list)", err)
+				} else {
+					log.Printf("[badlist] refreshed from %s", url)
+				}
+			}
+		}
+	}()
+}
+
+func (l *liveAnalyzer) fetchAndSwap(url string) error {
+	raw, err := fetchURL(url)
+	if err != nil {
+		return err
+	}
+	next, err := newBadlistFromBytes(raw)
+	if err != nil {
+		return fmt.Errorf("invalid JSON from %s: %w", url, err)
+	}
+	l.mu.Lock()
+	l.current = next
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *liveAnalyzer) Name() string { return "known-bad" }
+
+func (l *liveAnalyzer) RawJSON() []byte {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.current.raw
+}
+
+func (l *liveAnalyzer) Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) ([]shield.Finding, error) {
+	l.mu.RLock()
+	a := l.current
+	l.mu.RUnlock()
+	return a.Analyze(ctx, pkg, tarball)
 }
 
 func newBadlist(overridePath string) *badlistAnalyzer {
@@ -62,9 +141,17 @@ func newBadlist(overridePath string) *badlistAnalyzer {
 			raw = data
 		}
 	}
+	a, err := newBadlistFromBytes(raw)
+	if err != nil {
+		panic(fmt.Sprintf("badlist: parse known_bad.json: %v", err))
+	}
+	return a
+}
+
+func newBadlistFromBytes(raw []byte) (*badlistAnalyzer, error) {
 	var data badlistData
 	if err := json.Unmarshal(raw, &data); err != nil {
-		panic(fmt.Sprintf("badlist: parse known_bad.json: %v", err))
+		return nil, err
 	}
 	a := &badlistAnalyzer{
 		npm:  make(map[string][]badEntry),
@@ -77,7 +164,20 @@ func newBadlist(overridePath string) *badlistAnalyzer {
 	for _, e := range data.PyPI {
 		a.pypi[strings.ToLower(e.Name)] = append(a.pypi[strings.ToLower(e.Name)], e)
 	}
-	return a
+	return a, nil
+}
+
+func fetchURL(url string) ([]byte, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func (b *badlistAnalyzer) Name() string { return "known-bad" }
