@@ -47,8 +47,9 @@ variable "anthropic_api_key" {
 }
 
 variable "image_tag" {
-  description = "cipher-shield image tag to deploy"
-  default     = "0.1.4"
+  # Check https://github.com/Cipher-OSS/cipher-shield/releases for the latest version before deploying.
+  description = "cipher-shield image tag to deploy — pin to a specific semver for production"
+  default     = "1.0.0"
 }
 
 # ── VPC ───────────────────────────────────────────────────────────────────────

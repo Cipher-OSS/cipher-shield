@@ -1,11 +1,32 @@
 # Copy this to terraform.tfvars and fill in real values.
 # terraform.tfvars is gitignored — never commit real secrets.
+#
+# Generate all three secrets before filling this in:
+#   openssl rand -hex 32
+#
+# Save the generated values to a password manager or secrets vault.
+# They cannot be recovered from GCP after apply without modifying the infrastructure.
 
-gcp_project       = "your-gcp-project-id"
-gcp_region        = "us-central1"
-domain            = "yourdomain.com"
-db_password       = "change-me-strong-password"
-jwt_secret        = "generate-with-openssl-rand-hex-32"
-proxy_token       = "generate-with-openssl-rand-hex-32"
-anthropic_api_key = ""        # optional — leave empty to disable Claude analysis
-image_tag         = "0.1.5"
+gcp_project = "your-gcp-project-id"
+gcp_region  = "us-central1"
+domain      = "yourdomain.com"
+
+db_admin_user = "shieldadmin"
+
+# REQUIRED: replace each value below with output from: openssl rand -hex 32
+db_password = "REPLACE_BEFORE_APPLY"
+jwt_secret  = "REPLACE_BEFORE_APPLY"
+proxy_token = "REPLACE_BEFORE_APPLY"
+
+anthropic_api_key = "" # optional — leave empty to disable Claude-powered analysis
+
+# Check https://github.com/Cipher-OSS/cipher-shield/releases for the latest version.
+image_tag = "1.0.0"
+
+# enforce — block malicious packages (default)
+# warn    — log threats but allow all installs through (use during initial rollout)
+shield_mode = "enforce"
+
+# Protects Cloud SQL from accidental deletion.
+# Set to false before running terraform destroy.
+deletion_protection = true
