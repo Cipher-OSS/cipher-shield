@@ -7,3 +7,8 @@ node_modules/
 package.json
 package-lock.json
 .npmrc
+*.tfvars
+*.tfvars.json
+.terraform/
+*.tfstate
+*.tfstate.backup
