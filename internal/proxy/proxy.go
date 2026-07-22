@@ -52,6 +52,7 @@ type ResultReporter interface {
 // Config holds proxy startup configuration.
 type Config struct {
 	ListenAddr   string           // e.g. "127.0.0.1:7070"
+	PublicURL    string           // external base URL (e.g. "https://proxy.example.com") — used to rewrite tarball URLs in metadata responses so npm/pip download through the proxy; defaults to http://ListenAddr when empty
 	Mode         Mode
 	MaxBodyBytes int64            // max tarball to buffer (default 50MB)
 	Pipeline     Analyzer         // nil = pass everything through (audit)
@@ -296,27 +297,10 @@ func (p *Proxy) serve(conn net.Conn) {
 		return
 	}
 
-	// npm metadata request — check package name against Tier 1 before forwarding
+	// npm metadata request — rewrite tarball URLs so npm downloads go through this proxy
 	if name, ok := detectNPMMeta(req); ok {
-		if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
-			if p.cfg.Pipeline != nil {
-				pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name}
-				rep := p.cfg.Reporter
-				go func() {
-					result, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil)
-					if err != nil {
-						log.Printf("[proxy] failed to record name-block for %s: %v", name, err)
-						return
-					}
-					if rep != nil {
-						rep.Report(result)
-					}
-				}()
-			}
-			writeError(conn, http.StatusForbidden, fmt.Sprintf(
-				"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", name, name))
-			return
-		}
+		p.handleNPMMeta(conn, req, name)
+		return
 	}
 
 	// All other requests: transparent proxy
@@ -591,20 +575,88 @@ func (p *Proxy) handlePyPISimple(conn net.Conn, req *http.Request) {
 		return
 	}
 
-	// Rewrite https://files.pythonhosted.org/packages/... → /packages/...
-	// so pip downloads tarballs through this proxy instead of directly.
-	// Use the address pip actually connected to, not the raw listen address
-	// (which may be ":7070" with no host when bound to all interfaces).
-	proxyHost := p.cfg.ListenAddr
-	if proxyHost == "" || proxyHost[0] == ':' {
-		proxyHost = "localhost" + proxyHost
-	}
-	rewritten := strings.ReplaceAll(string(body), "https://files.pythonhosted.org", "http://"+proxyHost)
+	// Rewrite https://files.pythonhosted.org/packages/... URLs to route through
+	// this proxy so pip downloads tarballs here instead of going direct.
+	rewritten := strings.ReplaceAll(string(body), "https://files.pythonhosted.org", p.proxyBaseURL())
 
 	resp.Body = io.NopCloser(strings.NewReader(rewritten))
 	resp.ContentLength = int64(len(rewritten))
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
 	resp.Write(conn)
+}
+
+// handleNPMMeta fetches npm package metadata, runs a Tier 1 name check, and
+// rewrites dist.tarball URLs to route through this proxy. Without rewriting,
+// npm follows the absolute registry.npmjs.org URLs in the metadata directly,
+// bypassing the proxy so no tarball scan ever fires.
+func (p *Proxy) handleNPMMeta(conn net.Conn, req *http.Request, name string) {
+	if p.shouldBlockName(context.Background(), shield.EcosystemNPM, name) {
+		if p.cfg.Pipeline != nil {
+			pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name}
+			rep := p.cfg.Reporter
+			go func() {
+				result, err := p.cfg.Pipeline.Analyze(context.Background(), pkg, nil)
+				if err != nil {
+					log.Printf("[proxy] failed to record name-block for %s: %v", name, err)
+					return
+				}
+				if rep != nil {
+					rep.Report(result)
+				}
+			}()
+		}
+		writeError(conn, http.StatusForbidden, fmt.Sprintf(
+			"BLOCKED: %s — known malicious package\nRun 'cipher-shield explain %s' for details.", name, name))
+		return
+	}
+
+	req.Header.Del("Proxy-Connection")
+	req.Header.Del("Proxy-Authorization")
+	// Disable compression so the response body is plain JSON and string
+	// replacement works correctly. Without this the upstream may return gzip.
+	req.Header.Del("Accept-Encoding")
+	req.RequestURI = ""
+
+	resp, err := p.transport.RoundTrip(req)
+	if err != nil {
+		writeError(conn, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		p.forwardResponse(conn, resp, nil)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		writeError(conn, http.StatusBadGateway, "read error")
+		return
+	}
+
+	// Rewrite all dist.tarball URLs so npm fetches tarballs through this proxy.
+	rewritten := strings.ReplaceAll(string(body), "https://registry.npmjs.org", p.proxyBaseURL())
+
+	resp.Body = io.NopCloser(strings.NewReader(rewritten))
+	resp.ContentLength = int64(len(rewritten))
+	resp.Header.Del("Content-Encoding") // body is now uncompressed plain text
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
+	resp.Write(conn)
+}
+
+// proxyBaseURL returns the base URL clients use to reach this proxy.
+// Used to rewrite upstream tarball URLs so package manager downloads
+// are intercepted rather than going direct to the upstream registry.
+func (p *Proxy) proxyBaseURL() string {
+	if p.cfg.PublicURL != "" {
+		return strings.TrimRight(p.cfg.PublicURL, "/")
+	}
+	host := p.cfg.ListenAddr
+	if host == "" || host[0] == ':' {
+		host = "localhost" + host
+	}
+	return "http://" + host
 }
 
 // upstreamURL rewrites the request URL to point to the real upstream registry.

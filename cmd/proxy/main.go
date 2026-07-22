@@ -42,6 +42,7 @@ var version = "dev"
 
 func main() {
 	addr             := flag.String("addr",             envOr("SHIELD_PROXY_ADDR",          ":7070"),         "Proxy listen address")
+	publicURL        := flag.String("public-url",       envOr("SHIELD_PROXY_PUBLIC_URL",    ""),             "External base URL of this proxy (e.g. https://proxy.example.com) — required when running behind a load balancer or reverse proxy so tarball URLs in npm/pip metadata are rewritten correctly")
 	mode             := flag.String("mode",             envOr("SHIELD_MODE",                "enforce"),      "enforce | warn | audit")
 	anthropicKey     := flag.String("anthropic-key",    envOr("ANTHROPIC_API_KEY",          ""),             "Anthropic API key (enables Claude analysis)")
 	serverURL        := flag.String("server",           envOr("SHIELD_SERVER_URL",          ""),             "Central server URL (enables result reporting + exception sync)")
@@ -98,6 +99,7 @@ func main() {
 	// ── Start proxy ───────────────────────────────────────────────────────────
 	proxyCfg := proxy.Config{
 		ListenAddr:  *addr,
+		PublicURL:   *publicURL,
 		Mode:        proxy.Mode(*mode),
 		Pipeline:    pl,
 		NameChecker: pl,

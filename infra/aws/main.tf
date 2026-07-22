@@ -422,8 +422,9 @@ resource "aws_ecs_task_definition" "proxy" {
       { containerPort = 7070, protocol = "tcp" }
     ]
     environment = [
-      { name = "SHIELD_MODE",       value = "enforce" },
-      { name = "SHIELD_SERVER_URL", value = "https://shield.${var.domain}" }
+      { name = "SHIELD_MODE",             value = "enforce" },
+      { name = "SHIELD_PROXY_PUBLIC_URL", value = "https://proxy.${var.domain}" },
+      { name = "SHIELD_SERVER_URL",       value = "https://shield.${var.domain}" }
     ]
     secrets = local.proxy_secrets
     logConfiguration = {

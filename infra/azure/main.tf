@@ -251,9 +251,10 @@ resource "azurerm_container_app" "proxy" {
       cpu     = 0.5
       memory  = "1Gi"
 
-      env { name = "SHIELD_MODE";       value = "enforce" }
-      env { name = "SHIELD_SERVER_URL"; value = "https://shield.${var.domain}" }
-      env { name = "SHIELD_PROXY_TOKEN"; secret_name = "proxy-token" }
+      env { name = "SHIELD_MODE";             value = "enforce" }
+      env { name = "SHIELD_PROXY_PUBLIC_URL"; value = "https://proxy.${var.domain}" }
+      env { name = "SHIELD_SERVER_URL";       value = "https://shield.${var.domain}" }
+      env { name = "SHIELD_PROXY_TOKEN";      secret_name = "proxy-token" }
     }
   }
 

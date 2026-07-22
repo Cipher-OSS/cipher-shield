@@ -444,6 +444,10 @@ resource "google_cloud_run_v2_service" "proxy" {
         value = var.shield_mode
       }
       env {
+        name  = "SHIELD_PROXY_PUBLIC_URL"
+        value = "https://proxy.${var.domain}"
+      }
+      env {
         # The proxy reports scan results back to the API service.
         name  = "SHIELD_SERVER_URL"
         value = "https://shield.${var.domain}"

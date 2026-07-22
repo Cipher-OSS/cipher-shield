@@ -214,6 +214,29 @@ func TestIsPyPISimple(t *testing.T) {
 	}
 }
 
+// ── proxyBaseURL ───────────────────────────────────────────────────────────
+
+func TestProxyBaseURL(t *testing.T) {
+	cases := []struct {
+		listenAddr string
+		publicURL  string
+		want       string
+	}{
+		{":7070", "", "http://localhost:7070"},
+		{"127.0.0.1:7070", "", "http://127.0.0.1:7070"},
+		{"", "", "http://localhost"},
+		{":7070", "https://proxy.example.com", "https://proxy.example.com"},
+		{":7070", "https://proxy.example.com/", "https://proxy.example.com"}, // trailing slash stripped
+	}
+	for _, tc := range cases {
+		p := &Proxy{cfg: Config{ListenAddr: tc.listenAddr, PublicURL: tc.publicURL}}
+		got := p.proxyBaseURL()
+		if got != tc.want {
+			t.Errorf("listenAddr=%q publicURL=%q: want %q, got %q", tc.listenAddr, tc.publicURL, tc.want, got)
+		}
+	}
+}
+
 // ── resilientTransport ─────────────────────────────────────────────────────
 
 // mockRT is a fake RoundTripper that returns a canned status or error.
