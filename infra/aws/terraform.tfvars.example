@@ -1,14 +1,32 @@
 # Copy this to terraform.tfvars and fill in real values.
 # terraform.tfvars is gitignored — never commit real secrets.
+#
+# ── Before running terraform apply ───────────────────────────────────────────
+# Pre-create the three required secrets in AWS Secrets Manager.
+# Terraform reads them as data sources — they never touch terraform.tfvars.
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/db-password \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/jwt-secret \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/proxy-token \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+# Save each generated value to a password manager before running the command.
+# ─────────────────────────────────────────────────────────────────────────────
 
-domain            = "yourdomain.com"
-db_password       = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
-jwt_secret        = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
-proxy_token       = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
-anthropic_api_key = ""        # optional — leave empty to disable Claude analysis
-image_tag         = "1.3.0"   # check https://github.com/Cipher-OSS/cipher-shield/releases
-aws_region        = "us-east-1"
+domain     = "yourdomain.com"
+aws_region = "us-east-1"
+image_tag  = "1.3.0"   # check https://github.com/Cipher-OSS/cipher-shield/releases
+
+anthropic_api_key = ""  # optional — leave empty to disable Claude analysis
 
 # Optional overrides (defaults shown)
 # shield_mode         = "enforce"   # enforce | warn — use warn for initial rollouts
 # deletion_protection = true        # set to false before terraform destroy
+# db_admin_user       = "shieldadmin"
