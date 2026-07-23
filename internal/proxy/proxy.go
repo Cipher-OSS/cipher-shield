@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	shield "github.com/cipher-oss/cipher-shield/internal"
 )
 
@@ -44,9 +46,10 @@ type ExceptionChecker interface {
 	IsExcepted(eco shield.Ecosystem, name, version string) bool
 }
 
-// ResultReporter ships scan results to a central server.
+// ResultReporter ships scan results and download events to a central server.
 type ResultReporter interface {
 	Report(result *shield.ScanResult)
+	ReportDownload(e *shield.DownloadEvent)
 }
 
 // Config holds proxy startup configuration.
@@ -346,9 +349,17 @@ func (p *Proxy) handleTarball(conn net.Conn, req *http.Request, pkg shield.Packa
 
 	log.Printf("[proxy] %s@%s verdict=%s", pkg.Name, pkg.Version, result.Verdict)
 
-	// Ship result to central server if configured (non-blocking)
+	// Ship result and download event to central server if configured (non-blocking)
 	if p.cfg.Reporter != nil {
 		p.cfg.Reporter.Report(result)
+		p.cfg.Reporter.ReportDownload(&shield.DownloadEvent{
+			EventID:      uuid.New().String(),
+			Package:      pkg,
+			MachineID:    machineID(),
+			Verdict:      result.Verdict,
+			ScanID:       result.ScanID,
+			DownloadedAt: time.Now().UTC(),
+		})
 	}
 
 	// Block if verdict is block and mode is enforce
@@ -682,4 +693,14 @@ func upstreamURL(req *http.Request) *url.URL {
 
 func isPyPIPath(path string) bool {
 	return strings.HasPrefix(path, "/simple/") || strings.HasPrefix(path, "/packages/")
+}
+
+// machineID returns the hostname of the machine running the proxy, used to
+// identify which developer machine triggered a download in the dashboard.
+func machineID() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return h
 }

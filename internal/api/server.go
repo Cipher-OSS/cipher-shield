@@ -99,14 +99,16 @@ func (s *Server) routes() {
 
 	// Proxy reporting + exception sync (authenticated by pre-shared proxy token)
 	s.router.HandleFunc("/api/v1/report", s.requireProxyToken(s.handleReport)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/download", s.requireProxyToken(s.handleDownload)).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/proxy/exceptions", s.requireProxyToken(s.handleProxyExceptions)).Methods("GET", "OPTIONS")
 
 	// Scan
 	s.router.HandleFunc("/api/v1/scan/package", s.requireUser(s.rateLimitAPI(s.handleScanPackage))).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/scan/lockfile", s.requireUser(s.rateLimitAPI(s.handleScanLockfile))).Methods("POST", "OPTIONS")
 
-	// History
+	// History + downloads
 	s.router.HandleFunc("/api/v1/history", s.requireUser(s.rateLimitAPI(s.handleHistory))).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/downloads", s.requireUser(s.rateLimitAPI(s.handleListDownloads))).Methods("GET", "OPTIONS")
 
 	// Violations + triage
 	s.router.HandleFunc("/api/v1/violations", s.requireUser(s.rateLimitAPI(s.handleListViolations))).Methods("GET", "OPTIONS")

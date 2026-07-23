@@ -297,6 +297,140 @@ func TestViolationsAndDismiss(t *testing.T) {
 	}
 }
 
+// ── Download events ───────────────────────────────────────────────────────────
+
+func TestDownloadEventRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	e := shield.DownloadEvent{
+		EventID:      "evt-001",
+		Package:      shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "lodash", Version: "4.17.21"},
+		MachineID:    "dev-host-1",
+		Verdict:      shield.VerdictAllow,
+		ScanID:       "scan-001",
+		DownloadedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	if err := s.SaveDownload(ctx, e); err != nil {
+		t.Fatalf("SaveDownload: %v", err)
+	}
+
+	events, err := s.ListDownloads(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDownloads: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(events))
+	}
+	got := events[0]
+	if got.EventID != e.EventID {
+		t.Errorf("event_id: want %q, got %q", e.EventID, got.EventID)
+	}
+	if got.Package.Name != e.Package.Name {
+		t.Errorf("package.name: want %q, got %q", e.Package.Name, got.Package.Name)
+	}
+	if got.Package.Version != e.Package.Version {
+		t.Errorf("package.version: want %q, got %q", e.Package.Version, got.Package.Version)
+	}
+	if got.Package.Ecosystem != e.Package.Ecosystem {
+		t.Errorf("package.ecosystem: want %q, got %q", e.Package.Ecosystem, got.Package.Ecosystem)
+	}
+	if got.MachineID != e.MachineID {
+		t.Errorf("machine_id: want %q, got %q", e.MachineID, got.MachineID)
+	}
+	if got.Verdict != e.Verdict {
+		t.Errorf("verdict: want %q, got %q", e.Verdict, got.Verdict)
+	}
+	if got.ScanID != e.ScanID {
+		t.Errorf("scan_id: want %q, got %q", e.ScanID, got.ScanID)
+	}
+}
+
+func TestDownloadEventIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	e := shield.DownloadEvent{
+		EventID:      "evt-dup",
+		Package:      shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "express", Version: "4.18.0"},
+		MachineID:    "machine-1",
+		Verdict:      shield.VerdictAllow,
+		ScanID:       "scan-dup",
+		DownloadedAt: time.Now().UTC(),
+	}
+	if err := s.SaveDownload(ctx, e); err != nil {
+		t.Fatalf("first SaveDownload: %v", err)
+	}
+	// Duplicate event_id must be a no-op, not an error (INSERT OR IGNORE / ON CONFLICT DO NOTHING).
+	if err := s.SaveDownload(ctx, e); err != nil {
+		t.Fatalf("duplicate SaveDownload: %v", err)
+	}
+
+	events, _ := s.ListDownloads(ctx, 10)
+	if len(events) != 1 {
+		t.Errorf("duplicate insert must yield exactly 1 row, got %d", len(events))
+	}
+}
+
+func TestDownloadEventOrdering(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	base := time.Now().UTC().Truncate(time.Second)
+	names := []string{"oldest", "middle", "newest"}
+	for i, name := range names {
+		if err := s.SaveDownload(ctx, shield.DownloadEvent{
+			EventID:      "evt-" + name,
+			Package:      shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: name, Version: "1.0.0"},
+			MachineID:    "host",
+			Verdict:      shield.VerdictAllow,
+			ScanID:       "scan-" + name,
+			DownloadedAt: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("SaveDownload(%s): %v", name, err)
+		}
+	}
+
+	events, err := s.ListDownloads(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDownloads: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("want 3 events, got %d", len(events))
+	}
+	// ListDownloads returns most-recent first.
+	if events[0].Package.Name != "newest" {
+		t.Errorf("want newest first, got %q", events[0].Package.Name)
+	}
+	if events[2].Package.Name != "oldest" {
+		t.Errorf("want oldest last, got %q", events[2].Package.Name)
+	}
+}
+
+func TestDownloadEventLimit(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	base := time.Now().UTC()
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if err := s.SaveDownload(ctx, shield.DownloadEvent{
+			EventID:      "evt-" + id,
+			Package:      shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "pkg-" + id, Version: "1.0.0"},
+			DownloadedAt: base,
+		}); err != nil {
+			t.Fatalf("SaveDownload(%s): %v", id, err)
+		}
+	}
+
+	events, err := s.ListDownloads(ctx, 3)
+	if err != nil {
+		t.Fatalf("ListDownloads: %v", err)
+	}
+	if len(events) != 3 {
+		t.Errorf("want 3 (limit honored), got %d", len(events))
+	}
+}
+
 // ── Environment ───────────────────────────────────────────────────────────────
 
 func TestMain(m *testing.M) {

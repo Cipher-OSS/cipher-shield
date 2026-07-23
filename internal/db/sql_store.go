@@ -139,6 +139,17 @@ CREATE TABLE IF NOT EXISTS users (
     note         TEXT NOT NULL DEFAULT '',
     dismissed_at DATETIME NOT NULL
 );`,
+		`CREATE TABLE IF NOT EXISTS download_events (
+    event_id      TEXT PRIMARY KEY,
+    ecosystem     TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    machine_id    TEXT NOT NULL DEFAULT '',
+    verdict       TEXT NOT NULL,
+    scan_id       TEXT NOT NULL DEFAULT '',
+    downloaded_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS download_events_downloaded_at ON download_events(downloaded_at DESC);`,
 	},
 	// dbPostgres
 	{
@@ -184,6 +195,17 @@ CREATE TABLE IF NOT EXISTS users (
     note         TEXT NOT NULL DEFAULT '',
     dismissed_at TIMESTAMPTZ NOT NULL
 );`,
+		`CREATE TABLE IF NOT EXISTS download_events (
+    event_id      TEXT PRIMARY KEY,
+    ecosystem     TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    machine_id    TEXT NOT NULL DEFAULT '',
+    verdict       TEXT NOT NULL,
+    scan_id       TEXT NOT NULL DEFAULT '',
+    downloaded_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS download_events_downloaded_at ON download_events(downloaded_at DESC);`,
 	},
 }
 
@@ -543,6 +565,50 @@ LIMIT `+s.ph(1), limit)
 			}
 		}
 		out = append(out, vr)
+	}
+	return out, rows.Err()
+}
+
+// ── Download events ────────────────────────────────────────────────────────────
+
+func (s *sqlStore) SaveDownload(ctx context.Context, e shield.DownloadEvent) error {
+	var q string
+	if s.kind == dbSQLite {
+		q = `INSERT OR IGNORE INTO download_events (event_id, ecosystem, name, version, machine_id, verdict, scan_id, downloaded_at) VALUES (` + s.phs(1, 8) + `)`
+	} else {
+		q = `INSERT INTO download_events (event_id, ecosystem, name, version, machine_id, verdict, scan_id, downloaded_at) VALUES (` + s.phs(1, 8) + `) ON CONFLICT(event_id) DO NOTHING`
+	}
+	_, err := s.db.ExecContext(ctx, q,
+		e.EventID, string(e.Package.Ecosystem), e.Package.Name, e.Package.Version,
+		e.MachineID, string(e.Verdict), e.ScanID, e.DownloadedAt,
+	)
+	return err
+}
+
+func (s *sqlStore) ListDownloads(ctx context.Context, limit int) ([]shield.DownloadEvent, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT event_id, ecosystem, name, version, machine_id, verdict, scan_id, downloaded_at
+		 FROM download_events ORDER BY downloaded_at DESC LIMIT `+s.ph(1),
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListDownloads query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []shield.DownloadEvent
+	for rows.Next() {
+		var e shield.DownloadEvent
+		var eco string
+		if err := rows.Scan(&e.EventID, &eco, &e.Package.Name, &e.Package.Version,
+			&e.MachineID, &e.Verdict, &e.ScanID, &e.DownloadedAt); err != nil {
+			return nil, fmt.Errorf("ListDownloads scan row: %w", err)
+		}
+		e.Package.Ecosystem = shield.Ecosystem(eco)
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

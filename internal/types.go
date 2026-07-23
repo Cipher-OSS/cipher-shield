@@ -76,6 +76,18 @@ type ViolationRow struct {
 	Dismissal   *Dismissal `json:"dismissal,omitempty"`
 }
 
+// DownloadEvent is recorded every time a package tarball passes through the proxy,
+// regardless of whether a full scan ran (cached results still produce an event).
+// MachineID is the hostname of the machine running the proxy agent.
+type DownloadEvent struct {
+	EventID     string    `json:"event_id"`
+	Package     PackageRef `json:"package"`
+	MachineID   string    `json:"machine_id"`
+	Verdict     Verdict   `json:"verdict"`
+	ScanID      string    `json:"scan_id"`
+	DownloadedAt time.Time `json:"downloaded_at"`
+}
+
 type Exception struct {
 	ExceptionID string     `json:"exception_id"`
 	Ecosystem   Ecosystem  `json:"ecosystem"`

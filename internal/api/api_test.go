@@ -24,6 +24,7 @@ type testStore struct {
 	users      map[string]*shield.User // keyed by email
 	history    []shield.ScanResult
 	exceptions map[string]shield.Exception // keyed by exception_id
+	downloads  []shield.DownloadEvent
 }
 
 func newTestStore() *testStore {
@@ -118,8 +119,19 @@ func (s *testStore) ListHistory(_ context.Context, limit int) ([]shield.ScanResu
 }
 
 func (s *testStore) PruneHistory(_ context.Context, _ int) (int64, error)                        { return 0, nil }
-func (s *testStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)      { return nil, nil }
-func (s *testStore) DismissResult(_ context.Context, _, _, _ string) error                       { return nil }
+func (s *testStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)       { return nil, nil }
+func (s *testStore) DismissResult(_ context.Context, _, _, _ string) error                        { return nil }
+func (s *testStore) SaveDownload(_ context.Context, e shield.DownloadEvent) error {
+	s.downloads = append(s.downloads, e)
+	return nil
+}
+func (s *testStore) ListDownloads(_ context.Context, limit int) ([]shield.DownloadEvent, error) {
+	n := limit
+	if n > len(s.downloads) {
+		n = len(s.downloads)
+	}
+	return s.downloads[:n], nil
+}
 func (s *testStore) Migrate() error                                            { return nil }
 func (s *testStore) Close() error                                              { return nil }
 
@@ -742,6 +754,144 @@ func TestScanLockfileMultipart(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d — %s", w.Code, w.Body.String())
+	}
+}
+
+// ── Download events ───────────────────────────────────────────────────────────
+
+func TestDownloadValidToken(t *testing.T) {
+	store := newTestStore()
+	srv := newTestServer(store)
+
+	e := shield.DownloadEvent{
+		EventID: "dl-001",
+		Package: shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "lodash", Version: "4.17.21"},
+		MachineID: "dev-machine",
+		Verdict:   shield.VerdictAllow,
+		ScanID:    "scan-001",
+	}
+	body, _ := json.Marshal(e)
+	req := httptest.NewRequest("POST", "/api/v1/download", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testProxyToken)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d — %s", w.Code, w.Body.String())
+	}
+	if len(store.downloads) != 1 {
+		t.Fatalf("want 1 download event in store, got %d", len(store.downloads))
+	}
+	if store.downloads[0].Package.Name != "lodash" {
+		t.Errorf("want package name=lodash, got %q", store.downloads[0].Package.Name)
+	}
+	if store.downloads[0].EventID != "dl-001" {
+		t.Errorf("want event_id=dl-001, got %q", store.downloads[0].EventID)
+	}
+}
+
+func TestDownloadRequiresProxyToken(t *testing.T) {
+	srv := newTestServer(newTestStore())
+	w := doJSON(srv, "POST", "/api/v1/download", "", map[string]interface{}{
+		"event_id": "dl-002",
+		"package":  map[string]string{"name": "lodash", "version": "1.0.0"},
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+}
+
+func TestDownloadMissingPackageName(t *testing.T) {
+	srv := newTestServer(newTestStore())
+	body := `{"event_id":"dl-003","package":{"name":"","version":"1.0.0"}}`
+	req := httptest.NewRequest("POST", "/api/v1/download", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testProxyToken)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestDownloadAutoFillsEventID(t *testing.T) {
+	store := newTestStore()
+	srv := newTestServer(store)
+
+	// Omit event_id — server should generate one.
+	body := `{"package":{"ecosystem":"npm","name":"react","version":"18.2.0"}}`
+	req := httptest.NewRequest("POST", "/api/v1/download", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testProxyToken)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d — %s", w.Code, w.Body.String())
+	}
+	if len(store.downloads) == 0 {
+		t.Fatal("want event saved to store")
+	}
+	if store.downloads[0].EventID == "" {
+		t.Error("want auto-generated event_id, got empty string")
+	}
+}
+
+func TestListDownloadsRequiresAuth(t *testing.T) {
+	srv := newTestServer(newTestStore())
+	w := doJSON(srv, "GET", "/api/v1/downloads", "", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+}
+
+func TestDownloadEndToEnd(t *testing.T) {
+	store := newTestStore()
+	seedUser(store, "u@example.com", "pw", "analyst")
+	srv := newTestServer(store)
+	token := login(t, srv, "u@example.com", "pw")
+
+	// POST a download event as the proxy agent.
+	e := shield.DownloadEvent{
+		EventID: "e2e-001",
+		Package: shield.PackageRef{Ecosystem: shield.EcosystemPyPI, Name: "requests", Version: "2.31.0"},
+		MachineID: "container-abc123",
+		Verdict:   shield.VerdictAllow,
+		ScanID:    "scan-e2e",
+	}
+	postBody, _ := json.Marshal(e)
+	postReq := httptest.NewRequest("POST", "/api/v1/download", bytes.NewReader(postBody))
+	postReq.Header.Set("Content-Type", "application/json")
+	postReq.Header.Set("Authorization", "Bearer "+testProxyToken)
+	postW := httptest.NewRecorder()
+	srv.ServeHTTP(postW, postReq)
+	if postW.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/download: want 200, got %d — %s", postW.Code, postW.Body.String())
+	}
+
+	// GET /api/v1/downloads as a logged-in user — must include the event above.
+	getW := doJSON(srv, "GET", "/api/v1/downloads", token, nil)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/downloads: want 200, got %d — %s", getW.Code, getW.Body.String())
+	}
+	var resp struct {
+		Downloads []shield.DownloadEvent `json:"downloads"`
+	}
+	json.NewDecoder(getW.Body).Decode(&resp)
+	if len(resp.Downloads) != 1 {
+		t.Fatalf("want 1 download, got %d", len(resp.Downloads))
+	}
+	dl := resp.Downloads[0]
+	if dl.EventID != "e2e-001" {
+		t.Errorf("event_id: want e2e-001, got %q", dl.EventID)
+	}
+	if dl.Package.Name != "requests" {
+		t.Errorf("package.name: want requests, got %q", dl.Package.Name)
+	}
+	if dl.MachineID != "container-abc123" {
+		t.Errorf("machine_id: want container-abc123, got %q", dl.MachineID)
 	}
 }
 

@@ -1,12 +1,16 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	shield "github.com/cipher-oss/cipher-shield/internal"
 )
@@ -349,6 +353,157 @@ func TestResilientTransport_Proxy407(t *testing.T) {
 	if direct.called {
 		t.Error("direct transport must not be called as fallback on 407 — that bypasses the security gateway")
 	}
+}
+
+// ── handleTarball: download event integration ──────────────────────────────────
+
+// stubPipeline is a fake Analyzer that always returns an allow verdict.
+type stubPipeline struct{}
+
+func (s *stubPipeline) Analyze(_ context.Context, pkg shield.PackageRef, _ []byte) (*shield.ScanResult, error) {
+	return &shield.ScanResult{
+		ScanID:    "stub-scan-id",
+		Package:   pkg,
+		Verdict:   shield.VerdictAllow,
+		ScannedAt: time.Now().UTC(),
+	}, nil
+}
+
+// stubReporter captures Report and ReportDownload calls synchronously.
+type stubReporter struct {
+	results   []*shield.ScanResult
+	downloads []*shield.DownloadEvent
+}
+
+func (r *stubReporter) Report(result *shield.ScanResult) {
+	r.results = append(r.results, result)
+}
+
+func (r *stubReporter) ReportDownload(e *shield.DownloadEvent) {
+	r.downloads = append(r.downloads, e)
+}
+
+// TestHandleTarballFiresDownloadEvent verifies that handleTarball calls both
+// Report and ReportDownload on the configured reporter after a successful scan.
+func TestHandleTarballFiresDownloadEvent(t *testing.T) {
+	// Fake upstream: returns a minimal tarball body.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-tarball-content"))
+	}))
+	defer upstream.Close()
+
+	rep := &stubReporter{}
+	p := &Proxy{
+		cfg: Config{
+			Mode:     ModeEnforce,
+			Reporter: rep,
+			Pipeline: &stubPipeline{},
+		},
+		transport: http.DefaultTransport,
+	}
+
+	upURL, err := url.Parse(upstream.URL + "/lodash/-/lodash-4.17.21.tgz")
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	req := &http.Request{
+		Method: "GET",
+		URL:    upURL,
+		Header: make(http.Header),
+	}
+	pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "lodash", Version: "4.17.21"}
+
+	// net.Pipe gives two ends of an in-memory synchronous connection.
+	// handleTarball writes the HTTP response to server; we drain from client.
+	client, server := net.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.handleTarball(server, req, pkg)
+		server.Close()
+	}()
+
+	// Drain the response so the goroutine can finish writing.
+	io.Copy(io.Discard, client)
+	client.Close()
+	<-done
+
+	if len(rep.downloads) != 1 {
+		t.Fatalf("want 1 download event fired, got %d", len(rep.downloads))
+	}
+	dl := rep.downloads[0]
+	if dl.Package.Name != "lodash" {
+		t.Errorf("download.package.name: want lodash, got %q", dl.Package.Name)
+	}
+	if dl.Package.Version != "4.17.21" {
+		t.Errorf("download.package.version: want 4.17.21, got %q", dl.Package.Version)
+	}
+	if dl.Package.Ecosystem != shield.EcosystemNPM {
+		t.Errorf("download.package.ecosystem: want npm, got %q", dl.Package.Ecosystem)
+	}
+	if dl.EventID == "" {
+		t.Error("download.event_id must be populated (uuid)")
+	}
+	if dl.Verdict != shield.VerdictAllow {
+		t.Errorf("download.verdict: want allow, got %q", dl.Verdict)
+	}
+	if dl.ScanID == "" {
+		t.Error("download.scan_id must be populated")
+	}
+	if dl.DownloadedAt.IsZero() {
+		t.Error("download.downloaded_at must be set")
+	}
+	if dl.MachineID == "" {
+		t.Error("download.machine_id must be set (hostname)")
+	}
+	if len(rep.results) != 1 {
+		t.Errorf("want 1 scan result reported, got %d", len(rep.results))
+	}
+	if rep.results[0].Package.Name != "lodash" {
+		t.Errorf("result.package.name: want lodash, got %q", rep.results[0].Package.Name)
+	}
+}
+
+// TestHandleTarballNilReporter verifies that handleTarball doesn't panic when
+// no reporter is configured.
+func TestHandleTarballNilReporter(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-tarball"))
+	}))
+	defer upstream.Close()
+
+	p := &Proxy{
+		cfg: Config{
+			Mode:     ModeWarn,
+			Reporter: nil, // no reporter
+			Pipeline: &stubPipeline{},
+		},
+		transport: http.DefaultTransport,
+	}
+
+	upURL, _ := url.Parse(upstream.URL + "/express/-/express-4.18.0.tgz")
+	req := &http.Request{
+		Method: "GET",
+		URL:    upURL,
+		Header: make(http.Header),
+	}
+	pkg := shield.PackageRef{Ecosystem: shield.EcosystemNPM, Name: "express", Version: "4.18.0"}
+
+	client, server := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.handleTarball(server, req, pkg)
+		server.Close()
+	}()
+
+	io.Copy(io.Discard, client)
+	client.Close()
+	<-done
+	// If we reach here without panic, the test passes.
 }
 
 // TestResilientTransport_ProxyReturns4xx — non-407 errors from destination pass through unchanged.

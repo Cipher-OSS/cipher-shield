@@ -2,9 +2,13 @@
 # terraform.tfvars is gitignored — never commit real secrets.
 
 domain            = "yourdomain.com"
-db_password       = "change-me-strong-password"
-jwt_secret        = "generate-with-openssl-rand-hex-32"
-proxy_token       = "generate-with-openssl-rand-hex-32"
+db_password       = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
+jwt_secret        = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
+proxy_token       = "generate-with-openssl-rand-hex-32"  # openssl rand -hex 32
 anthropic_api_key = ""        # optional — leave empty to disable Claude analysis
-image_tag         = "0.1.5"
+image_tag         = "1.3.0"   # check https://github.com/Cipher-OSS/cipher-shield/releases
 aws_region        = "us-east-1"
+
+# Optional overrides (defaults shown)
+# shield_mode         = "enforce"   # enforce | warn — use warn for initial rollouts
+# deletion_protection = true        # set to false before terraform destroy

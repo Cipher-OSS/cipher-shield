@@ -49,7 +49,20 @@ variable "anthropic_api_key" {
 variable "image_tag" {
   # Check https://github.com/Cipher-OSS/cipher-shield/releases for the latest version before deploying.
   description = "cipher-shield image tag to deploy — pin to a specific semver for production"
-  default     = "1.0.0"
+  default     = "1.3.0"
+}
+
+variable "shield_mode" {
+  description = "Enforcement mode: 'enforce' blocks threats, 'warn' logs them. Use 'warn' for initial rollouts."
+  default     = "enforce"
+}
+
+# Protects RDS from accidental deletion.
+# Set to false in terraform.tfvars before running terraform destroy.
+variable "deletion_protection" {
+  type        = bool
+  description = "Enable RDS deletion protection. Set to false before running terraform destroy."
+  default     = true
 }
 
 # ── VPC ───────────────────────────────────────────────────────────────────────
@@ -154,9 +167,16 @@ resource "aws_route_table_association" "private_b" {
 
 resource "aws_security_group" "alb" {
   name        = "cipher-shield-alb"
-  description = "ALB — HTTPS only"
+  description = "ALB — HTTP (redirect) + HTTPS"
   vpc_id      = aws_vpc.vpc.id
 
+  # Port 80 accepts plain HTTP only to redirect to HTTPS — no traffic reaches ECS.
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   ingress {
     from_port   = 443
     to_port     = 443
@@ -258,6 +278,9 @@ resource "aws_db_instance" "pg" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
   publicly_accessible    = false
+
+  # Set deletion_protection = false in terraform.tfvars before destroying.
+  deletion_protection = var.deletion_protection
 
   tags = { Name = "cipher-shield-db" }
 }
@@ -367,9 +390,12 @@ locals {
     [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }]
   )
 
-  proxy_secrets = [
-    { name = "SHIELD_PROXY_TOKEN", valueFrom = aws_secretsmanager_secret.proxy_token.arn },
-  ]
+  proxy_secrets = concat(
+    [{ name = "SHIELD_PROXY_TOKEN", valueFrom = aws_secretsmanager_secret.proxy_token.arn }],
+    # Include the Anthropic key in the proxy so Claude analysis runs during npm/pip intercepts,
+    # not only during manual API scans.
+    [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }]
+  )
 }
 
 # API task — full server binary (API + dashboard)
@@ -389,7 +415,7 @@ resource "aws_ecs_task_definition" "api" {
       { containerPort = 8080, protocol = "tcp" }
     ]
     environment = [
-      { name = "SHIELD_MODE",        value = "enforce" },
+      { name = "SHIELD_MODE",        value = var.shield_mode },
       { name = "SHIELD_CORS_ORIGIN", value = "https://shield.${var.domain}" }
     ]
     secrets = local.api_secrets
@@ -422,7 +448,7 @@ resource "aws_ecs_task_definition" "proxy" {
       { containerPort = 7070, protocol = "tcp" }
     ]
     environment = [
-      { name = "SHIELD_MODE",             value = "enforce" },
+      { name = "SHIELD_MODE",             value = var.shield_mode },
       { name = "SHIELD_PROXY_PUBLIC_URL", value = "https://proxy.${var.domain}" },
       { name = "SHIELD_SERVER_URL",       value = "https://shield.${var.domain}" }
     ]
@@ -480,7 +506,24 @@ resource "aws_lb_target_group" "proxy" {
   }
 }
 
-# Single HTTPS listener — host-based routing sends npm/pypi to proxy, default to API
+# Port 80 listener — redirects all HTTP to HTTPS (307 temporary so clients update their bookmarks).
+# Google-managed cert probes port 80 on GCP; on AWS this just prevents silent failures for HTTP users.
+resource "aws_lb_listener" "http_redirect" {
+  load_balancer_arn = aws_lb.alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# HTTPS listener — host-based routing sends proxy.DOMAIN to proxy, default to API
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.alb.arn
   port              = 443

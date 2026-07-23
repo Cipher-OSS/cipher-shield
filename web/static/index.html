@@ -715,6 +715,13 @@
         </svg>
         Lockfile Scan
       </button>
+      <button class="nav-pill" onclick="showView('downloads')" id="nav-downloads">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.88 18.09A5 5 0 0018 9h-1.26A8 8 0 103 16.29"/>
+        </svg>
+        Downloads
+      </button>
       <button class="nav-pill" onclick="showView('violations')" id="nav-violations">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -990,6 +997,31 @@
             </thead>
             <tbody id="violations-tbody">
               <tr class="empty-row"><td colspan="8">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Downloads View -->
+      <div class="view" id="view-downloads">
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3>Download Events</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadDownloads()">Refresh</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th>Ecosystem</th>
+                <th>Version</th>
+                <th>Machine</th>
+                <th>Verdict</th>
+                <th>Downloaded</th>
+              </tr>
+            </thead>
+            <tbody id="downloads-tbody">
+              <tr class="empty-row"><td colspan="6">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1303,6 +1335,7 @@ const VIEW_TITLES = {
   dashboard:  'Dashboard',
   scan:       'Scan Package',
   lockfile:   'Lockfile Scan',
+  downloads:  'Downloads',
   violations: 'Violations',
   exceptions: 'Exceptions',
   badlist:    'Known Bad Packages',
@@ -1322,10 +1355,47 @@ function showView(name) {
   if (titleEl) titleEl.textContent = VIEW_TITLES[name] || name;
 
   if (name === 'dashboard')  loadHistory();
+  if (name === 'downloads')  loadDownloads();
   if (name === 'violations') loadViolations();
   if (name === 'exceptions') loadExceptions();
   if (name === 'badlist')    loadBadlist();
   if (name === 'users')      loadUsers();
+}
+
+// ── Downloads ─────────────────────────────────────────────────────────────────
+
+async function loadDownloads() {
+  const tbody = document.getElementById('downloads-tbody');
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+  try {
+    const res = await apiFetch('/api/v1/downloads?limit=200');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const items = data.downloads || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No download events yet — install a package through the proxy to see activity here.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(d => {
+      const pkg  = d.package ? d.package.name      : '—';
+      const eco  = d.package ? d.package.ecosystem  : '—';
+      const ver  = d.package ? d.package.version    : '—';
+      const verb = (d.verdict || 'allow').toLowerCase();
+      const machine = esc(d.machine_id || '—');
+      const ts   = fmtDate(d.downloaded_at);
+      const badge = verdictBadge(verb);
+      return `<tr>
+        <td><strong>${esc(pkg)}</strong></td>
+        <td>${esc(eco)}</td>
+        <td><code>${esc(ver)}</code></td>
+        <td><code style="font-size:11px">${machine}</code></td>
+        <td>${badge}</td>
+        <td style="color:var(--muted);font-size:12px">${ts}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Failed to load downloads: ${esc(e.message)}</td></tr>`;
+  }
 }
 
 // ── Violations ────────────────────────────────────────────────────────────────

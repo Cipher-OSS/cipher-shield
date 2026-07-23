@@ -29,6 +29,10 @@ type Store interface {
 	ListViolations(ctx context.Context, limit int) ([]shield.ViolationRow, error)
 	DismissResult(ctx context.Context, scanID, dismissedBy, note string) error
 
+	// Download events
+	SaveDownload(ctx context.Context, e shield.DownloadEvent) error
+	ListDownloads(ctx context.Context, limit int) ([]shield.DownloadEvent, error)
+
 	// Users
 	CreateUser(ctx context.Context, email, passwordHash, role string) (*shield.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*shield.User, error)

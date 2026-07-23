@@ -49,7 +49,12 @@ variable "anthropic_api_key" {
 variable "image_tag" {
   # Check https://github.com/Cipher-OSS/cipher-shield/releases for the latest version before deploying.
   description = "cipher-shield image tag to deploy — pin to a specific semver for production"
-  default     = "1.0.0"
+  default     = "1.3.0"
+}
+
+variable "shield_mode" {
+  description = "Enforcement mode: 'enforce' blocks threats, 'warn' logs them. Use 'warn' for initial rollouts."
+  default     = "enforce"
 }
 
 # ── Resource Group ────────────────────────────────────────────────────────────
@@ -202,7 +207,7 @@ resource "azurerm_container_app" "api" {
       cpu    = 0.5
       memory = "1Gi"
 
-      env { name = "SHIELD_MODE";        value = "enforce" }
+      env { name = "SHIELD_MODE";        value = var.shield_mode }
       env { name = "SHIELD_CORS_ORIGIN"; value = "https://shield.${var.domain}" }
       env { name = "SHIELD_JWT_SECRET";  secret_name = "jwt-secret" }
       env { name = "SHIELD_PROXY_TOKEN"; secret_name = "proxy-token" }
@@ -239,6 +244,15 @@ resource "azurerm_container_app" "proxy" {
     name  = "proxy-token"
     value = var.proxy_token
   }
+  # The proxy intercepts every npm/pip install — Claude runs here, not only during
+  # manual API scans. Conditionally include the key so it matches API service behavior.
+  dynamic "secret" {
+    for_each = var.anthropic_api_key != "" ? [1] : []
+    content {
+      name  = "anthropic-api-key"
+      value = var.anthropic_api_key
+    }
+  }
 
   template {
     min_replicas = 1
@@ -251,10 +265,17 @@ resource "azurerm_container_app" "proxy" {
       cpu     = 0.5
       memory  = "1Gi"
 
-      env { name = "SHIELD_MODE";             value = "enforce" }
+      env { name = "SHIELD_MODE";             value = var.shield_mode }
       env { name = "SHIELD_PROXY_PUBLIC_URL"; value = "https://proxy.${var.domain}" }
       env { name = "SHIELD_SERVER_URL";       value = "https://shield.${var.domain}" }
       env { name = "SHIELD_PROXY_TOKEN";      secret_name = "proxy-token" }
+      dynamic "env" {
+        for_each = var.anthropic_api_key != "" ? [1] : []
+        content {
+          name        = "ANTHROPIC_API_KEY"
+          secret_name = "anthropic-api-key"
+        }
+      }
     }
   }
 

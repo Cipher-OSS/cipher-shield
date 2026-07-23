@@ -27,7 +27,9 @@ func (n *noopStore) GetUserByID(_ context.Context, _ string) (*shield.User, erro
 func (n *noopStore) UpdatePassword(_ context.Context, _, _ string) error                       { return nil }
 func (n *noopStore) CountUsers(_ context.Context) (int, error)                                 { return 0, nil }
 func (n *noopStore) ListUsers(_ context.Context) ([]shield.User, error)                        { return nil, nil }
-func (n *noopStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)    { return nil, nil }
-func (n *noopStore) DismissResult(_ context.Context, _, _, _ string) error                     { return nil }
-func (n *noopStore) Migrate() error                                                             { return nil }
-func (n *noopStore) Close() error                                                               { return nil }
+func (n *noopStore) ListViolations(_ context.Context, _ int) ([]shield.ViolationRow, error)       { return nil, nil }
+func (n *noopStore) DismissResult(_ context.Context, _, _, _ string) error                        { return nil }
+func (n *noopStore) SaveDownload(_ context.Context, _ shield.DownloadEvent) error                 { return nil }
+func (n *noopStore) ListDownloads(_ context.Context, _ int) ([]shield.DownloadEvent, error)       { return nil, nil }
+func (n *noopStore) Migrate() error                                                                { return nil }
+func (n *noopStore) Close() error                                                                  { return nil }

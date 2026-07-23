@@ -54,7 +54,7 @@ variable "anthropic_api_key" {
 variable "image_tag" {
   # Check https://github.com/Cipher-OSS/cipher-shield/releases for the latest version before deploying.
   description = "cipher-shield image tag to deploy — pin to a specific semver for production"
-  default     = "1.0.0"
+  default     = "1.3.0"
 }
 
 # Protects the Cloud SQL instance from accidental deletion.
@@ -459,6 +459,21 @@ resource "google_cloud_run_v2_service" "proxy" {
           secret_key_ref {
             secret  = google_secret_manager_secret.proxy_token.secret_id
             version = "latest"
+          }
+        }
+      }
+
+      # The proxy service intercepts every npm/pip install — Claude runs here,
+      # not only during manual API scans. Mirror the API service's optional key.
+      dynamic "env" {
+        for_each = google_secret_manager_secret.anthropic_api_key[*].secret_id
+        content {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
           }
         }
       }

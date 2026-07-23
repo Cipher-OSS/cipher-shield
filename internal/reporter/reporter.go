@@ -42,7 +42,7 @@ func (r *Reporter) Report(result *shield.ScanResult) {
 	go func() {
 		backoff := time.Second
 		for attempt := 1; attempt <= 3; attempt++ {
-			err := r.send(result)
+			err := r.post("/api/v1/report", result)
 			if err == nil {
 				return
 			}
@@ -57,14 +57,27 @@ func (r *Reporter) Report(result *shield.ScanResult) {
 	}()
 }
 
-func (r *Reporter) send(result *shield.ScanResult) error {
-	body, err := json.Marshal(result)
+// ReportDownload ships a download event to the server in a background goroutine.
+// Safe to call on a nil Reporter.
+func (r *Reporter) ReportDownload(e *shield.DownloadEvent) {
+	if r == nil || e == nil {
+		return
+	}
+	go func() {
+		if err := r.post("/api/v1/download", e); err != nil {
+			log.Printf("[reporter] download event %s@%s: %v", e.Package.Name, e.Package.Version, err)
+		}
+	}()
+}
+
+func (r *Reporter) post(path string, payload interface{}) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
 	req, err := http.NewRequestWithContext(
 		context.Background(), "POST",
-		r.serverURL+"/api/v1/report",
+		r.serverURL+path,
 		bytes.NewReader(body),
 	)
 	if err != nil {
