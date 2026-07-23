@@ -25,21 +25,6 @@ variable "db_admin_user" {
   default = "shieldadmin"
 }
 
-variable "db_password" {
-  description = "RDS PostgreSQL admin password"
-  sensitive   = true
-}
-
-variable "jwt_secret" {
-  description = "JWT signing secret (min 32 chars)"
-  sensitive   = true
-}
-
-variable "proxy_token" {
-  description = "Pre-shared token for proxy agent reporting"
-  sensitive   = true
-}
-
 variable "anthropic_api_key" {
   description = "Anthropic API key (optional — enables Claude analysis)"
   default     = ""
@@ -63,6 +48,38 @@ variable "deletion_protection" {
   type        = bool
   description = "Enable RDS deletion protection. Set to false before running terraform destroy."
   default     = true
+}
+
+# ── Secrets Manager data sources ─────────────────────────────────────────────
+# Pre-create these three secrets before running terraform apply:
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/db-password \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/jwt-secret \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+#   aws secretsmanager create-secret \
+#     --name cipher-shield/proxy-token \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+# Save the generated values to your password manager before running each command.
+
+# Value is read by Terraform to set the RDS password and assemble DATABASE_URL.
+data "aws_secretsmanager_secret_version" "db_password" {
+  secret_id = "cipher-shield/db-password"
+}
+
+# ARN only — ECS fetches the value at task startup.
+data "aws_secretsmanager_secret" "jwt_secret" {
+  name = "cipher-shield/jwt-secret"
+}
+
+# ARN only — ECS fetches the value at task startup.
+data "aws_secretsmanager_secret" "proxy_token" {
+  name = "cipher-shield/proxy-token"
 }
 
 # ── VPC ───────────────────────────────────────────────────────────────────────
@@ -273,7 +290,7 @@ resource "aws_db_instance" "pg" {
   allocated_storage      = 20
   db_name                = "shield"
   username               = var.db_admin_user
-  password               = var.db_password
+  password               = data.aws_secretsmanager_secret_version.db_password.secret_string
   db_subnet_group_name   = aws_db_subnet_group.pg.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
@@ -326,8 +343,8 @@ resource "aws_iam_role_policy" "secrets_read" {
       Resource = concat(
         [
           aws_secretsmanager_secret.db_url.arn,
-          aws_secretsmanager_secret.jwt_secret.arn,
-          aws_secretsmanager_secret.proxy_token.arn,
+          data.aws_secretsmanager_secret.jwt_secret.arn,
+          data.aws_secretsmanager_secret.proxy_token.arn,
         ],
         aws_secretsmanager_secret.anthropic_api_key[*].arn
       )
@@ -346,24 +363,6 @@ resource "aws_secretsmanager_secret_version" "db_url" {
   secret_string = local.db_url
 }
 
-resource "aws_secretsmanager_secret" "jwt_secret" {
-  name = "cipher-shield/jwt-secret"
-}
-
-resource "aws_secretsmanager_secret_version" "jwt_secret" {
-  secret_id     = aws_secretsmanager_secret.jwt_secret.id
-  secret_string = var.jwt_secret
-}
-
-resource "aws_secretsmanager_secret" "proxy_token" {
-  name = "cipher-shield/proxy-token"
-}
-
-resource "aws_secretsmanager_secret_version" "proxy_token" {
-  secret_id     = aws_secretsmanager_secret.proxy_token.id
-  secret_string = var.proxy_token
-}
-
 resource "aws_secretsmanager_secret" "anthropic_api_key" {
   count = var.anthropic_api_key != "" ? 1 : 0
   name  = "cipher-shield/anthropic-api-key"
@@ -379,19 +378,19 @@ resource "aws_secretsmanager_secret_version" "anthropic_api_key" {
 
 locals {
   image  = "ghcr.io/cipher-oss/cipher-shield:${var.image_tag}"
-  db_url = "postgres://${var.db_admin_user}:${var.db_password}@${aws_db_instance.pg.address}:5432/shield?sslmode=require"
+  db_url = "postgres://${var.db_admin_user}:${data.aws_secretsmanager_secret_version.db_password.secret_string}@${aws_db_instance.pg.address}:5432/shield?sslmode=require"
 
   api_secrets = concat(
     [
       { name = "DATABASE_URL",       valueFrom = aws_secretsmanager_secret.db_url.arn },
-      { name = "SHIELD_JWT_SECRET",  valueFrom = aws_secretsmanager_secret.jwt_secret.arn },
-      { name = "SHIELD_PROXY_TOKEN", valueFrom = aws_secretsmanager_secret.proxy_token.arn },
+      { name = "SHIELD_JWT_SECRET",  valueFrom = data.aws_secretsmanager_secret.jwt_secret.arn },
+      { name = "SHIELD_PROXY_TOKEN", valueFrom = data.aws_secretsmanager_secret.proxy_token.arn },
     ],
     [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }]
   )
 
   proxy_secrets = concat(
-    [{ name = "SHIELD_PROXY_TOKEN", valueFrom = aws_secretsmanager_secret.proxy_token.arn }],
+    [{ name = "SHIELD_PROXY_TOKEN", valueFrom = data.aws_secretsmanager_secret.proxy_token.arn }],
     # Include the Anthropic key in the proxy so Claude analysis runs during npm/pip intercepts,
     # not only during manual API scans.
     [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }]

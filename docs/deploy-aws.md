@@ -36,28 +36,40 @@ flowchart LR
 
 The Terraform module is included in this repo under `infra/aws/`.
 
+**Step 1 — pre-create secrets in Secrets Manager.**
+
+Terraform reads these as data sources — they never pass through `terraform.tfvars`. Run each command separately and save the generated values to your password manager before continuing.
+
+```bash
+aws secretsmanager create-secret \
+  --name cipher-shield/db-password \
+  --secret-string "$(openssl rand -hex 32)"
+
+aws secretsmanager create-secret \
+  --name cipher-shield/jwt-secret \
+  --secret-string "$(openssl rand -hex 32)"
+
+aws secretsmanager create-secret \
+  --name cipher-shield/proxy-token \
+  --secret-string "$(openssl rand -hex 32)"
+```
+
+**Step 2 — fill in `terraform.tfvars`.**
+
 ```bash
 cd infra/aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Generate secrets and write `terraform.tfvars`:
+Edit `terraform.tfvars` and set your domain, region, and image tag. No secrets go in this file.
 
-```bash
-cat > terraform.tfvars << EOF
-domain            = "yourdomain.com"
-db_password       = "$(openssl rand -hex 16)"
-jwt_secret        = "$(openssl rand -hex 32)"
-proxy_token       = "$(openssl rand -hex 32)"
-anthropic_api_key = ""
-image_tag         = "0.1.5"
-aws_region        = "us-east-1"
-EOF
+```hcl
+domain     = "yourdomain.com"
+aws_region = "us-east-1"
+image_tag  = "1.3.0"
 ```
 
-> Save `terraform.tfvars` somewhere safe — these secrets are not recoverable after `terraform apply` without modifying the running infrastructure.
-
-**Step 1 — create the certificate and get the DNS validation record:**
+**Step 3 — create the ACM certificate and get the DNS validation record:**
 
 ```bash
 terraform init
@@ -66,13 +78,13 @@ terraform apply -target=aws_acm_certificate.shield
 
 Terraform outputs a CNAME record under `acm_validation_records`. Add it to your DNS provider and wait for propagation before continuing — ACM won't issue the certificate until the record resolves.
 
-**Step 2 — add the ALB DNS records, then deploy everything else:**
+**Step 4 — deploy everything else:**
 
 ```bash
 terraform apply
 ```
 
-This creates the VPC, RDS, ECS services, and ALB (~10 minutes, RDS dominates). Once complete, get the ALB hostname:
+This creates the VPC, RDS, ECS services, ALB, and the assembled `DATABASE_URL` secret (~10 minutes, RDS dominates). Once complete, get the ALB hostname:
 
 ```bash
 terraform output alb_dns_name
@@ -131,11 +143,21 @@ ECS performs a rolling update with no downtime.
 
 ## Teardown
 
+RDS deletion protection is enabled by default. Disable it first, then destroy:
+
 ```bash
-terraform destroy
+# In terraform.tfvars, set: deletion_protection = false
+terraform apply   # updates RDS to allow deletion
+terraform destroy # removes all resources
 ```
 
-Deletes all resources created by `terraform apply` — ECS services, RDS, ALB, VPC, Secrets Manager entries, and the ACM certificate.
+`terraform destroy` deletes ECS services, RDS, ALB, VPC, the `db-url` Secrets Manager entry, and the ACM certificate. The three secrets you pre-created (`db-password`, `jwt-secret`, `proxy-token`) are not managed by Terraform and must be deleted separately:
+
+```bash
+aws secretsmanager delete-secret --secret-id cipher-shield/db-password --force-delete-without-recovery
+aws secretsmanager delete-secret --secret-id cipher-shield/jwt-secret  --force-delete-without-recovery
+aws secretsmanager delete-secret --secret-id cipher-shield/proxy-token --force-delete-without-recovery
+```
 
 ---
 
