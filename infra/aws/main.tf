@@ -184,7 +184,7 @@ resource "aws_route_table_association" "private_b" {
 
 resource "aws_security_group" "alb" {
   name        = "cipher-shield-alb"
-  description = "ALB — HTTP (redirect) + HTTPS"
+  description = "ALB - HTTP (redirect) + HTTPS"
   vpc_id      = aws_vpc.vpc.id
 
   # Port 80 accepts plain HTTP only to redirect to HTTPS — no traffic reaches ECS.
@@ -212,7 +212,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "ecs" {
   name        = "cipher-shield-ecs"
-  description = "ECS tasks — reachable from ALB only"
+  description = "ECS tasks - reachable from ALB only"
   vpc_id      = aws_vpc.vpc.id
 
   ingress {
@@ -250,6 +250,32 @@ resource "aws_security_group" "rds" {
   }
 
   tags = { Name = "cipher-shield-rds-sg" }
+}
+
+# ── Route53 Private Hosted Zone ──────────────────────────────────────────────
+# Gives the VPC resolver a local answer for shield.DOMAIN so the proxy can
+# reach the API server without going through Cloudflare's nameservers.
+# Without this, the 4-hop public DNS chain causes intermittent resolution
+# failures from within the VPC.
+
+resource "aws_route53_zone" "private" {
+  name = var.domain
+
+  vpc {
+    vpc_id = aws_vpc.vpc.id
+  }
+}
+
+resource "aws_route53_record" "shield_internal" {
+  zone_id = aws_route53_zone.private.zone_id
+  name    = "shield.${var.domain}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.alb.dns_name
+    zone_id                = aws_lb.alb.zone_id
+    evaluate_target_health = true
+  }
 }
 
 # ── ACM Certificate ───────────────────────────────────────────────────────────
@@ -607,7 +633,7 @@ output "acm_validation_records" {
 
 output "alb_dns_name" {
   value       = aws_lb.alb.dns_name
-  description = "Step 2: Create CNAME records in Cloudflare for shield.${var.domain} and proxy.${var.domain} pointing to this"
+  description = "Step 2: Create CNAME records in Cloudflare for shield.DOMAIN and proxy.DOMAIN pointing to this"
 }
 
 output "api_url" {
