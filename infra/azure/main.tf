@@ -57,6 +57,16 @@ variable "shield_mode" {
   default     = "enforce"
 }
 
+variable "api_max_count" {
+  description = "Maximum number of API container replicas"
+  default     = 10
+}
+
+variable "proxy_max_count" {
+  description = "Maximum number of proxy container replicas. Proxy is CPU-bound (tarball scanning) — scale this first under load."
+  default     = 10
+}
+
 # ── Resource Group ────────────────────────────────────────────────────────────
 
 resource "azurerm_resource_group" "rg" {
@@ -189,17 +199,14 @@ resource "azurerm_container_app" "api" {
     name  = "db-url"
     value = local.db_url
   }
-  dynamic "secret" {
-    for_each = var.anthropic_api_key != "" ? [1] : []
-    content {
-      name  = "anthropic-api-key"
-      value = var.anthropic_api_key
-    }
+  secret {
+    name  = "anthropic-api-key"
+    value = var.anthropic_api_key
   }
 
   template {
     min_replicas = 1
-    max_replicas = 4
+    max_replicas = var.api_max_count
 
     container {
       name   = "cipher-shield-api"
@@ -207,17 +214,29 @@ resource "azurerm_container_app" "api" {
       cpu    = 0.5
       memory = "1Gi"
 
-      env { name = "SHIELD_MODE";        value = var.shield_mode }
-      env { name = "SHIELD_CORS_ORIGIN"; value = "https://shield.${var.domain}" }
-      env { name = "SHIELD_JWT_SECRET";  secret_name = "jwt-secret" }
-      env { name = "SHIELD_PROXY_TOKEN"; secret_name = "proxy-token" }
-      env { name = "DATABASE_URL";       secret_name = "db-url" }
-      dynamic "env" {
-        for_each = var.anthropic_api_key != "" ? [1] : []
-        content {
-          name        = "ANTHROPIC_API_KEY"
-          secret_name = "anthropic-api-key"
-        }
+      env {
+        name  = "SHIELD_MODE"
+        value = var.shield_mode
+      }
+      env {
+        name  = "SHIELD_CORS_ORIGIN"
+        value = "https://shield.${var.domain}"
+      }
+      env {
+        name        = "SHIELD_JWT_SECRET"
+        secret_name = "jwt-secret"
+      }
+      env {
+        name        = "SHIELD_PROXY_TOKEN"
+        secret_name = "proxy-token"
+      }
+      env {
+        name        = "DATABASE_URL"
+        secret_name = "db-url"
+      }
+      env {
+        name        = "ANTHROPIC_API_KEY"
+        secret_name = "anthropic-api-key"
       }
     }
   }
@@ -244,19 +263,14 @@ resource "azurerm_container_app" "proxy" {
     name  = "proxy-token"
     value = var.proxy_token
   }
-  # The proxy intercepts every npm/pip install — Claude runs here, not only during
-  # manual API scans. Conditionally include the key so it matches API service behavior.
-  dynamic "secret" {
-    for_each = var.anthropic_api_key != "" ? [1] : []
-    content {
-      name  = "anthropic-api-key"
-      value = var.anthropic_api_key
-    }
+  secret {
+    name  = "anthropic-api-key"
+    value = var.anthropic_api_key
   }
 
   template {
     min_replicas = 1
-    max_replicas = 4
+    max_replicas = var.proxy_max_count
 
     container {
       name    = "cipher-shield-proxy"
@@ -265,16 +279,25 @@ resource "azurerm_container_app" "proxy" {
       cpu     = 0.5
       memory  = "1Gi"
 
-      env { name = "SHIELD_MODE";             value = var.shield_mode }
-      env { name = "SHIELD_PROXY_PUBLIC_URL"; value = "https://proxy.${var.domain}" }
-      env { name = "SHIELD_SERVER_URL";       value = "https://shield.${var.domain}" }
-      env { name = "SHIELD_PROXY_TOKEN";      secret_name = "proxy-token" }
-      dynamic "env" {
-        for_each = var.anthropic_api_key != "" ? [1] : []
-        content {
-          name        = "ANTHROPIC_API_KEY"
-          secret_name = "anthropic-api-key"
-        }
+      env {
+        name  = "SHIELD_MODE"
+        value = var.shield_mode
+      }
+      env {
+        name  = "SHIELD_PROXY_PUBLIC_URL"
+        value = "https://proxy.${var.domain}"
+      }
+      env {
+        name  = "SHIELD_SERVER_URL"
+        value = "https://shield.${var.domain}"
+      }
+      env {
+        name        = "SHIELD_PROXY_TOKEN"
+        secret_name = "proxy-token"
+      }
+      env {
+        name        = "ANTHROPIC_API_KEY"
+        secret_name = "anthropic-api-key"
       }
     }
   }
@@ -290,42 +313,18 @@ resource "azurerm_container_app" "proxy" {
 }
 
 # ── Custom Domains + Managed Certificates ─────────────────────────────────────
-# Azure provisions free Let's Encrypt certs via CNAME validation.
+# Terraform configures infra; custom domain binding is a two-step manual process
+# because Azure's managed cert resource requires the CNAME to resolve before it
+# can be created (chicken-and-egg with Terraform state).
 #
-# Apply sequence:
-#   1. terraform apply  (deploys infra, get FQDNs from outputs below)
-#   2. Add CNAMEs in Cloudflare:
-#        shield.YOURDOMAIN  →  cipher-shield-api.<env_default_domain>
-#        proxy.YOURDOMAIN   →  cipher-shield-proxy.<env_default_domain>
-#   3. terraform apply  (provisions managed certs, binds custom domains)
-
-resource "azurerm_container_app_environment_managed_certificate" "shield" {
-  name                         = "cert-shield"
-  container_app_environment_id = azurerm_container_app_environment.env.id
-  domain_name                  = "shield.${var.domain}"
-  domain_validation_type       = "CNAME"
-}
-
-resource "azurerm_container_app_environment_managed_certificate" "proxy" {
-  name                         = "cert-proxy"
-  container_app_environment_id = azurerm_container_app_environment.env.id
-  domain_name                  = "proxy.${var.domain}"
-  domain_validation_type       = "CNAME"
-}
-
-resource "azurerm_container_app_custom_domain" "shield" {
-  name                                             = "shield.${var.domain}"
-  container_app_id                                 = azurerm_container_app.api.id
-  container_app_environment_certificate_id         = azurerm_container_app_environment_managed_certificate.shield.id
-  certificate_binding_type                         = "SniEnabled"
-}
-
-resource "azurerm_container_app_custom_domain" "proxy" {
-  name                                             = "proxy.${var.domain}"
-  container_app_id                                 = azurerm_container_app.proxy.id
-  container_app_environment_certificate_id         = azurerm_container_app_environment_managed_certificate.proxy.id
-  certificate_binding_type                         = "SniEnabled"
-}
+# After terraform apply:
+#   1. Get the Container App FQDNs from the outputs below.
+#   2. In Cloudflare (DNS only, not proxied):
+#        shield.YOURDOMAIN  CNAME  →  cipher-shield-api.<env_default_domain>
+#        proxy.YOURDOMAIN   CNAME  →  cipher-shield-proxy.<env_default_domain>
+#   3. In the Azure portal → Container Apps Environment → Custom domains:
+#        Add shield.YOURDOMAIN and proxy.YOURDOMAIN.
+#        Azure provisions a free managed TLS certificate automatically via CNAME validation.
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 
@@ -336,12 +335,12 @@ output "env_default_domain" {
 
 output "api_fqdn" {
   value       = "cipher-shield-api.${azurerm_container_app_environment.env.default_domain}"
-  description = "Step 1: Add Cloudflare CNAME → shield.${var.domain} points here"
+  description = "Step 1: Add Cloudflare CNAME for shield.DOMAIN pointing here"
 }
 
 output "proxy_fqdn" {
   value       = "cipher-shield-proxy.${azurerm_container_app_environment.env.default_domain}"
-  description = "Step 1: Add Cloudflare CNAME → proxy.${var.domain} points here"
+  description = "Step 1: Add Cloudflare CNAME for proxy.DOMAIN pointing here"
 }
 
 output "api_url" {

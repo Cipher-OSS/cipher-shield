@@ -30,3 +30,7 @@ shield_mode = "enforce"
 # Protects Cloud SQL from accidental deletion.
 # Set to false before running terraform destroy.
 deletion_protection = true
+
+# Optional scaling limits (defaults shown)
+# api_max_count   = 10   # max API Cloud Run instances
+# proxy_max_count = 10   # max proxy Cloud Run instances
