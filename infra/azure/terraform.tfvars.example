@@ -9,5 +9,7 @@ anthropic_api_key = ""        # optional — leave empty to disable Claude analy
 image_tag         = "1.3.0"   # check https://github.com/Cipher-OSS/cipher-shield/releases
 
 # Optional overrides (defaults shown)
-# location     = "East US 2"
-# shield_mode  = "enforce"   # enforce | warn — use warn for initial rollouts
+# location        = "East US 2"
+# shield_mode     = "enforce"   # enforce | warn — use warn for initial rollouts
+# api_max_count   = 10          # max API container replicas
+# proxy_max_count = 10          # max proxy container replicas

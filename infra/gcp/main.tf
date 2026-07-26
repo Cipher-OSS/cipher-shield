@@ -79,6 +79,16 @@ variable "shield_mode" {
   default     = "enforce"
 }
 
+variable "api_max_count" {
+  description = "Maximum number of API Cloud Run instances"
+  default     = 10
+}
+
+variable "proxy_max_count" {
+  description = "Maximum number of proxy Cloud Run instances. Proxy is CPU-bound (tarball scanning) — scale this first under load."
+  default     = 10
+}
+
 # ── Enable required APIs ──────────────────────────────────────────────────────
 
 resource "google_project_service" "compute" {
@@ -409,7 +419,7 @@ resource "google_cloud_run_v2_service" "api" {
 
     scaling {
       min_instance_count = 1
-      max_instance_count = 4
+      max_instance_count = var.api_max_count
     }
   }
 
@@ -485,7 +495,7 @@ resource "google_cloud_run_v2_service" "proxy" {
 
     scaling {
       min_instance_count = 1
-      max_instance_count = 4
+      max_instance_count = var.proxy_max_count
     }
   }
 
