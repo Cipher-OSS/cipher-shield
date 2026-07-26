@@ -71,7 +71,7 @@ jwt_secret    = "$(openssl rand -hex 32)"
 proxy_token   = "$(openssl rand -hex 32)"
 
 anthropic_api_key = ""
-image_tag           = "1.0.0"  # check github.com/Cipher-OSS/cipher-shield/releases for latest
+image_tag           = "1.3.0"  # check github.com/Cipher-OSS/cipher-shield/releases for latest
 shield_mode         = "enforce"
 deletion_protection = true
 EOF
@@ -185,6 +185,19 @@ The `shield_mode` variable controls what happens when a threat is detected:
 | `warn` | Install allowed, warning logged | Install allowed through |
 
 Switch modes without redeploying the container by updating `shield_mode` in `terraform.tfvars` and running `terraform apply`. Use `warn` mode during an initial rollout to validate coverage before enabling blocking.
+
+---
+
+## Scaling
+
+By default both services scale to a maximum of 10 Cloud Run instances. Override in `terraform.tfvars`:
+
+```hcl
+api_max_count   = 20   # max API instances
+proxy_max_count = 20   # max proxy instances (CPU-bound — scale this first under load)
+```
+
+Minimum is always 1 (keeps cold-start latency out of the install path).
 
 ---
 
