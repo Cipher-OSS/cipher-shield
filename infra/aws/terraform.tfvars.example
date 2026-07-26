@@ -30,3 +30,5 @@ anthropic_api_key = ""  # optional — leave empty to disable Claude analysis
 # shield_mode         = "enforce"   # enforce | warn — use warn for initial rollouts
 # deletion_protection = true        # set to false before terraform destroy
 # db_admin_user       = "shieldadmin"
+# api_max_count       = 10          # max API task replicas
+# proxy_max_count     = 10          # max proxy task replicas (CPU-bound — scale this first under load)

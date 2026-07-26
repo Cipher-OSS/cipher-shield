@@ -44,6 +44,16 @@ variable "shield_mode" {
 
 # Protects RDS from accidental deletion.
 # Set to false in terraform.tfvars before running terraform destroy.
+variable "api_max_count" {
+  description = "Maximum number of API task replicas"
+  default     = 10
+}
+
+variable "proxy_max_count" {
+  description = "Maximum number of proxy task replicas. Proxy is CPU-bound (tarball scanning) — scale this first under load."
+  default     = 10
+}
+
 variable "deletion_protection" {
   type        = bool
   description = "Enable RDS deletion protection. Set to false before running terraform destroy."
@@ -622,6 +632,96 @@ resource "aws_ecs_service" "proxy" {
   }
 
   depends_on = [aws_lb_listener.https]
+}
+
+# ── Auto-scaling ─────────────────────────────────────────────────────────────
+# Target tracking on CPU (60%) and memory (70%) for both services.
+# Scale-out is aggressive (60s cooldown) — the proxy sits in the critical path
+# of every npm/pip install, so latency spikes should trigger fast.
+# Scale-in is conservative (300s cooldown) to avoid thrashing.
+
+resource "aws_appautoscaling_target" "api" {
+  max_capacity       = var.api_max_count
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.cluster.name}/${aws_ecs_service.api.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "api_cpu" {
+  name               = "cipher-shield-api-cpu"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.api.resource_id
+  scalable_dimension = aws_appautoscaling_target.api.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.api.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 60.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+resource "aws_appautoscaling_policy" "api_memory" {
+  name               = "cipher-shield-api-memory"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.api.resource_id
+  scalable_dimension = aws_appautoscaling_target.api.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.api.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+    target_value       = 70.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+resource "aws_appautoscaling_target" "proxy" {
+  max_capacity       = var.proxy_max_count
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.cluster.name}/${aws_ecs_service.proxy.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "proxy_cpu" {
+  name               = "cipher-shield-proxy-cpu"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.proxy.resource_id
+  scalable_dimension = aws_appautoscaling_target.proxy.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.proxy.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 60.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+resource "aws_appautoscaling_policy" "proxy_memory" {
+  name               = "cipher-shield-proxy-memory"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.proxy.resource_id
+  scalable_dimension = aws_appautoscaling_target.proxy.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.proxy.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+    target_value       = 70.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
 }
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
