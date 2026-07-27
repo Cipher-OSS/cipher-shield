@@ -21,8 +21,8 @@ cd cipher-shield
 
 export SHIELD_JWT_SECRET=$(openssl rand -hex 32)
 export SHIELD_PROXY_TOKEN=$(openssl rand -hex 32)
-export DB_PASSWORD=$(openssl rand -hex 16)
-export ANTHROPIC_API_KEY=sk-ant-...   # optional — enables Tier 4 Claude analysis
+export DB_PASSWORD=$(openssl rand -hex 32)
+export ANTHROPIC_API_KEY=""   # optional — set to your Anthropic API key to enable Claude analysis
 ```
 
 Save these values somewhere secure — you'll need `SHIELD_PROXY_TOKEN` when configuring developer machines.
@@ -32,6 +32,8 @@ Save these values somewhere secure — you'll need `SHIELD_PROXY_TOKEN` when con
 ## 2. Start the server
 
 Start in `warn` mode first. In warn mode cipher-shield logs threats but never blocks installs, giving you time to review what it would have caught before enforcing.
+
+> By default the compose file pulls `ghcr.io/cipher-oss/cipher-shield:latest`. For production, pin a specific release tag by setting `SHIELD_IMAGE_TAG=1.3.0` (check [releases](https://github.com/Cipher-OSS/cipher-shield/releases) for the latest). Using `latest` means an unexpected breaking change in a new release could affect your deployment on the next restart.
 
 ```sh
 SHIELD_MODE=warn \
@@ -46,7 +48,7 @@ Verify it's running:
 
 ```sh
 curl http://<your-server>:8080/api/v1/health
-# {"status":"ok","version":"0.1.5"}
+# {"status":"ok","version":"1.3.0"}
 ```
 
 ---
