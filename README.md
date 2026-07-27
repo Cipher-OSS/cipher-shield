@@ -210,7 +210,6 @@ internal/
     heuristic/  Tarball scoring — pattern matching on install scripts + source
     claude/     Claude Opus deep analysis + finding expander
   proxy/        HTTP proxy — intercepts npm/pip metadata and tarball requests
-  proxyctl/     npm/pip registry config management
   reporter/     Ships scan results to central server; caches exception list (60s)
   lockfile/     Parsers: package-lock.json, yarn.lock, requirements.txt, poetry.lock
   db/           Store interface — SQLite (local/dev) + Postgres (team/production)
