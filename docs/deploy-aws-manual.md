@@ -1,7 +1,7 @@
 # Deploying cipher-shield on AWS
 
 **Architecture:** ECS Fargate + RDS PostgreSQL + Application Load Balancer.  
-Managed containers — no EC2 to patch, auto-restarts on crash, scales 1–4 tasks at 60% CPU.  
+Managed containers — no EC2 to patch, auto-restarts on crash, auto-scales on CPU utilization.  
 **Estimated cost:** ~$50–80/month (ALB ~$20/month base + Fargate + RDS).
 
 ---
@@ -42,7 +42,7 @@ flowchart LR
 ```bash
 export AWS_REGION=us-east-1
 export APP=cipher-shield
-export IMAGE=ghcr.io/cipher-oss/cipher-shield:latest
+export IMAGE=ghcr.io/cipher-oss/cipher-shield:1.3.0   # check github.com/Cipher-OSS/cipher-shield/releases for latest
 export DB_NAME=shield
 export DB_USER=shieldadmin
 export DOMAIN=yourdomain.com   # replace with your domain
@@ -55,7 +55,7 @@ export DOMAIN=yourdomain.com   # replace with your domain
 ```bash
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
-DB_PASSWORD=$(openssl rand -hex 16)
+DB_PASSWORD=$(openssl rand -hex 32)
 
 # Save these now — they won't be shown again and are needed in later steps
 echo "JWT_SECRET=$JWT_SECRET"
@@ -341,7 +341,7 @@ aws ecs wait services-stable --region $AWS_REGION \
   --cluster $APP --services ${APP}-api
 
 curl https://shield.${DOMAIN}/api/v1/health
-# {"status":"ok","version":"0.1.4"}
+# {"status":"ok","version":"1.3.0"}
 ```
 
 ---
@@ -410,7 +410,7 @@ for SVC in ${APP}-api ${APP}-proxy; do
     --service-namespace ecs \
     --resource-id service/$APP/$SVC \
     --scalable-dimension ecs:service:DesiredCount \
-    --min-capacity 1 --max-capacity 4
+    --min-capacity 1 --max-capacity 10
 
   aws application-autoscaling put-scaling-policy \
     --service-namespace ecs \
@@ -421,8 +421,8 @@ for SVC in ${APP}-api ${APP}-proxy; do
     --target-tracking-scaling-policy-configuration '{
       "TargetValue": 60.0,
       "PredefinedMetricSpecification": {"PredefinedMetricType": "ECSServiceAverageCPUUtilization"},
-      "ScaleInCooldown": 60,
-      "ScaleOutCooldown": 30
+      "ScaleOutCooldown": 60,
+      "ScaleInCooldown": 300
     }'
 done
 ```

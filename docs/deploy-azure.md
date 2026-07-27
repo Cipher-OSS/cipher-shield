@@ -63,7 +63,7 @@ az group create --name $RG --location $LOCATION
 ```bash
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
-DB_PASSWORD=$(openssl rand -hex 16)
+DB_PASSWORD=$(openssl rand -hex 32)
 
 # Save these now — they won't be shown again
 echo "JWT_SECRET=$JWT_SECRET"
@@ -130,10 +130,10 @@ az containerapp create \
   --name cipher-shield-api \
   --resource-group $RG \
   --environment $ACA_ENV \
-  --image ghcr.io/cipher-oss/cipher-shield:latest \
+  --image ghcr.io/cipher-oss/cipher-shield:1.3.0 \
   --target-port 8080 \
   --ingress external \
-  --min-replicas 1 --max-replicas 4 \
+  --min-replicas 1 --max-replicas 10 \
   --scale-rule-name cpu-rule \
   --scale-rule-type cpu \
   --scale-rule-metadata type=Utilization value=60 \
@@ -164,10 +164,10 @@ az containerapp create \
   --name cipher-shield-proxy \
   --resource-group $RG \
   --environment $ACA_ENV \
-  --image ghcr.io/cipher-oss/cipher-shield:latest \
+  --image ghcr.io/cipher-oss/cipher-shield:1.3.0 \
   --target-port 7070 \
   --ingress external \
-  --min-replicas 1 --max-replicas 4 \
+  --min-replicas 1 --max-replicas 10 \
   --scale-rule-name cpu-rule \
   --scale-rule-type cpu \
   --scale-rule-metadata type=Utilization value=60 \
@@ -191,7 +191,7 @@ echo "Proxy URL: https://$PROXY_URL"
 
 ```bash
 curl https://$API_URL/api/v1/health
-# {"status":"ok","version":"0.1.5"}
+# {"status":"ok","version":"1.3.0"}
 ```
 
 ---
@@ -291,7 +291,7 @@ This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatica
 
 ## Scaling behavior
 
-Both Container Apps scale from 1 to 4 replicas at 60% CPU. You can adjust at any time:
+Both Container Apps scale from 1 to 10 replicas at 60% CPU. You can adjust at any time:
 
 ```bash
 az containerapp update \

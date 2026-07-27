@@ -159,12 +159,11 @@ cipher-shield's Docker image (`ghcr.io/cipher-oss/cipher-shield`) is for running
 The recommended way is `docker-compose`:
 
 ```sh
-cp configs/docker-compose.yml .
 SHIELD_JWT_SECRET=$(openssl rand -hex 32) \
 SHIELD_PROXY_TOKEN=$(openssl rand -hex 32) \
-DB_PASSWORD=$(openssl rand -hex 16) \
-ANTHROPIC_API_KEY=sk-ant-... \
-docker compose up -d
+DB_PASSWORD=$(openssl rand -hex 32) \
+ANTHROPIC_API_KEY="" \
+docker compose -f configs/docker-compose.yml up -d
 ```
 
 This starts two containers: the cipher-shield server (ports 7070 + 8080) and a Postgres database. See the deployment guides for cloud-specific setups.
