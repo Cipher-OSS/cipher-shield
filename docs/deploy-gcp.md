@@ -58,7 +58,7 @@ gcloud services enable \
 export PROJECT_ID=$(gcloud config get-value project)
 export REGION=us-central1
 export SQL_INSTANCE=cipher-shield-pg
-export IMAGE=ghcr.io/cipher-oss/cipher-shield:latest
+export IMAGE=ghcr.io/cipher-oss/cipher-shield:1.3.0   # check github.com/Cipher-OSS/cipher-shield/releases for latest
 export DOMAIN=yourdomain.com   # replace with your domain
 ```
 
@@ -69,7 +69,7 @@ export DOMAIN=yourdomain.com   # replace with your domain
 ```bash
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
-DB_PASSWORD=$(openssl rand -hex 16)
+DB_PASSWORD=$(openssl rand -hex 32)
 
 # Save these now — they won't be shown again
 echo "JWT_SECRET=$JWT_SECRET"
@@ -170,7 +170,7 @@ gcloud run deploy cipher-shield-api \
   --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest,DATABASE_URL=cipher-db-url:latest" \
   --allow-unauthenticated \
   --min-instances=1 \
-  --max-instances=4
+  --max-instances=10
 
 API_URL=$(gcloud run services describe cipher-shield-api \
   --region=$REGION --format='value(status.url)')
@@ -193,7 +193,7 @@ gcloud run deploy cipher-shield-proxy \
   --set-secrets="SHIELD_PROXY_TOKEN=cipher-proxy-token:latest" \
   --allow-unauthenticated \
   --min-instances=1 \
-  --max-instances=4
+  --max-instances=10
 
 PROXY_URL=$(gcloud run services describe cipher-shield-proxy \
   --region=$REGION --format='value(status.url)')
@@ -206,7 +206,7 @@ echo "Proxy URL: $PROXY_URL"
 
 ```bash
 curl $API_URL/api/v1/health
-# {"status":"ok","version":"0.1.5"}
+# {"status":"ok","version":"1.3.0"}
 ```
 
 ---
@@ -310,7 +310,7 @@ This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatica
 
 ## Scaling behavior
 
-Both services scale 1–4 instances based on request concurrency. Set `--min-instances=0` to enable scale-to-zero. Keep the proxy at `--min-instances=1` to avoid cold start delays on `npm install` / `pip install`.
+Both services scale 1–10 instances based on request concurrency. Set `--min-instances=0` to enable scale-to-zero. Keep the proxy at `--min-instances=1` to avoid cold start delays on `npm install` / `pip install`.
 
 ```bash
 gcloud run services update cipher-shield-api \
