@@ -187,8 +187,8 @@ All authenticated endpoints require `Authorization: Bearer <token>`. Obtain a to
 ```sh
 git clone https://github.com/cipher-oss/cipher-shield
 cd cipher-shield
-go build ./cmd/server     # team server (proxy + API + dashboard)
-go build ./cmd/proxy      # standalone proxy (reports to server, no dashboard)
+go build ./cmd/server     # team server: registry proxy + REST API + dashboard
+go build ./cmd/proxy      # standalone proxy: deployed separately in cloud setups
 ```
 
 Requires Go 1.26+. CGO must be enabled (`go-sqlite3` requires it).
@@ -200,7 +200,7 @@ Requires Go 1.26+. CGO must be enabled (`go-sqlite3` requires it).
 ```
 cmd/
   server/       Team server — registry proxy + REST API + web dashboard
-  proxy/        Standalone proxy — lightweight, reports to server, no dashboard
+  proxy/        Standalone proxy — used as the separate proxy service in cloud deployments
 
 internal/
   pipeline/     Orchestrates the four analysis tiers

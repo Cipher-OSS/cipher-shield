@@ -29,7 +29,7 @@ In scope:
 - The registry proxy (package interception logic)
 - The analysis pipeline (false negatives that allow malicious packages through)
 - The REST API and dashboard (auth, injection, data exposure)
-- The installer scripts (`install.sh`, `install.ps1`)
+- The Docker image and release binaries
 
 Out of scope:
 - Vulnerabilities in upstream registries (npm, PyPI)
