@@ -447,8 +447,6 @@ This endpoint is open when the users table is empty; the first user is forced to
 
 ## 13. Configure dev machines
 
-**Option A — centralized proxy (no cipher-shield install required on each machine)**
-
 Point npm and pip at your proxy domain. All installs are intercepted and scanned at the server.
 
 ```bash
@@ -457,16 +455,6 @@ pip config set global.index-url https://proxy.${DOMAIN}/simple/
 ```
 
 Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard at `https://shield.${DOMAIN}` automatically.
-
-**Option B — local proxy reporting to central server**
-
-Developers install cipher-shield locally. The local proxy handles interception and ships results to the central server.
-
-```bash
-export SHIELD_SERVER_URL=https://shield.${DOMAIN}
-export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 2>
-cipher-shield proxy start
-```
 
 ---
 

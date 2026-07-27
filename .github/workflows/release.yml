@@ -9,24 +9,15 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.goos }}-${{ matrix.goarch }}
-    runs-on: ${{ matrix.runs-on }}
+    name: ${{ matrix.goarch }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     strategy:
       matrix:
         include:
-          # Linux — cross-compile from x86_64 Ubuntu; sqlite3 needs CGO + proper cross-CC
-          - { goos: linux,   goarch: amd64, runs-on: ubuntu-latest, cc: "" }
-          - { goos: linux,   goarch: arm64, runs-on: ubuntu-latest, cc: aarch64-linux-gnu-gcc }
-
-          # macOS — use native runners so CGO compiles without cross-toolchain
-          # macos-13 = x86_64 Intel;  macos-latest (14+) = Apple Silicon arm64
-          - { goos: darwin,  goarch: amd64, runs-on: macos-13,      cc: "" }
-          - { goos: darwin,  goarch: arm64, runs-on: macos-latest,  cc: "" }
-
-          # Windows — cross-compile via mingw-w64
-          - { goos: windows, goarch: amd64, runs-on: ubuntu-latest, cc: x86_64-w64-mingw32-gcc }
+          - { goarch: amd64, cc: "" }
+          - { goarch: arm64, cc: aarch64-linux-gnu-gcc }
 
     steps:
       - uses: actions/checkout@v4
@@ -35,43 +26,33 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Install cross-compilers (Linux runner only)
-        if: matrix.runs-on == 'ubuntu-latest'
-        run: |
-          sudo apt-get update -qq
-          pkgs=""
-          [ "${{ matrix.goarch }}" = "arm64" ] && [ "${{ matrix.goos }}" = "linux" ] && pkgs="$pkgs gcc-aarch64-linux-gnu"
-          [ "${{ matrix.goos }}" = "windows" ] && pkgs="$pkgs mingw-w64"
-          [ -n "$pkgs" ] && sudo apt-get install -y $pkgs || true
+      - name: Install cross-compiler (arm64)
+        if: matrix.goarch == 'arm64'
+        run: sudo apt-get update -qq && sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build binaries
         env:
-          GOOS:        ${{ matrix.goos }}
+          GOOS:        linux
           GOARCH:      ${{ matrix.goarch }}
           CGO_ENABLED: "1"
           CC:          ${{ matrix.cc }}
         run: |
           mkdir -p dist
-          ext=""
-          [ "${{ matrix.goos }}" = "windows" ] && ext=".exe"
           TAG="${GITHUB_REF_NAME}"
 
           go build \
             -ldflags="-s -w -X main.version=${TAG}" \
-            -o "dist/cipher-shield-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" \
-            ./cmd/shield/
+            -o "dist/cipher-shield-server-linux-${{ matrix.goarch }}" \
+            ./cmd/server/
 
-          # Server binary: Linux only (other platforms deploy via Docker)
-          if [ "${{ matrix.goos }}" = "linux" ]; then
-            go build \
-              -ldflags="-s -w -X main.version=${TAG}" \
-              -o "dist/shield-server-${{ matrix.goos }}-${{ matrix.goarch }}" \
-              ./cmd/server/
-          fi
+          go build \
+            -ldflags="-s -w -X main.version=${TAG}" \
+            -o "dist/cipher-shield-proxy-linux-${{ matrix.goarch }}" \
+            ./cmd/proxy/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: binaries-linux-${{ matrix.goarch }}
           path: dist/
 
   release:

@@ -268,24 +268,12 @@ az containerapp update \
 
 ## 11. Configure dev machines
 
-**Option A — centralized proxy (no cipher-shield install required on each machine):**
-
 ```bash
 npm config set registry https://proxy.${DOMAIN}/
 pip config set global.index-url https://proxy.${DOMAIN}/simple/
 ```
 
 Push this via MDM, Ansible, or your onboarding scripts. Scan results appear on the dashboard at `https://shield.${DOMAIN}` automatically.
-
-**Option B — local proxy reporting to central server:**
-
-```bash
-export SHIELD_SERVER_URL=https://shield.${DOMAIN}
-export SHIELD_PROXY_TOKEN=<PROXY_TOKEN from step 3>
-cipher-shield proxy start
-```
-
-This starts a local proxy on `127.0.0.1:7070`, configures npm and pip automatically, and reports all results to the cloud server. No need to deploy the proxy Container App (step 7) if using this option.
 
 ---
 
