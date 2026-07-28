@@ -188,7 +188,7 @@ func main() {
 		log.Printf("[startup] WARNING: SHIELD_PROXY_TOKEN not set — proxy reporting unauthenticated (dev mode)")
 	}
 
-	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin, expander, bl)
+	srv := api.New(store, pl, []byte(*jwtSecret), []byte(*proxyToken), *mode, *corsOrigin, expander, bl, version)
 
 	// Stop rate-limiter goroutines on SIGTERM / Ctrl+C.
 	go func() {

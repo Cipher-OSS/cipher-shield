@@ -10,13 +10,13 @@ import (
 
 // GET /api/v1/health
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	jsonOK(w, map[string]string{"status": "ok", "version": apiVersion})
+	jsonOK(w, map[string]string{"status": "ok", "version": s.version})
 }
 
 // GET /api/v1/config — unauthenticated; lets clients discover server capabilities.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{
-		"version":      apiVersion,
+		"version":      s.version,
 		"auth_enabled": len(s.jwtSecret) > 0,
 		"mode":         s.mode,
 	})
