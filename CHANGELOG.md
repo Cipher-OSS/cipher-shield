@@ -8,15 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+---
+
+## [1.4.0] — 2026-07-28
+
+### Security
+- Removed unauthenticated bootstrap endpoint — `POST /api/v1/users` now requires an admin JWT at all times; no unauthenticated window exists at any point after startup
+- Admin account creation moved to server startup via `SHIELD_ADMIN_EMAIL` / `SHIELD_ADMIN_PASSWORD` env vars (only runs when the user table is empty); mirrors Grafana's bootstrap pattern
+
 ### Added
 - Multi-arch Docker image — `linux/amd64` and `linux/arm64` published on every release tag
 - `data/known_bad.json` published at the repo root; point `SHIELD_KNOWN_BAD_URL` at the raw GitHub URL to receive out-of-band threat updates between releases
 - Configurable auto-scaling limits for GCP and Azure Terraform (`api_max_count`, `proxy_max_count`, default 10)
 - Proxy token rotation procedure documented in FAQ
+- Bootstrap instructions and post-login cleanup steps in all deployment docs (Docker, AWS, GCP, Azure)
+- `SHIELD_ADMIN_EMAIL` and `SHIELD_ADMIN_PASSWORD` variables added to all Terraform modules with Secrets Manager / Secret Manager / Key Vault backing
 
 ### Changed
 - GitHub Actions pinned to commit SHAs across all workflows (supply chain hardening)
 - AWS Terraform auto-scaling cooldowns corrected: scale-out 60 s, scale-in 300 s
+- API version is now injected at build time from the release tag (`-ldflags`); no manual constant to bump on release
 
 ### Removed
 - Developer CLI (`cmd/shield`) and `internal/proxyctl` — will be reintroduced when the platform is solid
@@ -93,7 +104,8 @@ Pre-release iteration. Highlights:
 
 ---
 
-[Unreleased]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Cipher-OSS/cipher-shield/compare/v1.0.0...v1.1.0
