@@ -382,47 +382,22 @@ func TestMeInvalidToken(t *testing.T) {
 
 // ── Users / bootstrap ─────────────────────────────────────────────────────────
 
-func TestBootstrapFirstUserNoAuth(t *testing.T) {
-	store := newTestStore()
-	srv := newTestServer(store)
+func TestCreateUserRequiresAdmin(t *testing.T) {
+	srv := newTestServer(newTestStore())
 
+	// Unauthenticated — must be rejected even on an empty user table
 	w := doJSON(srv, "POST", "/api/v1/users", "", map[string]string{
-		"email": "first@example.com", "password": "initialpass",
-	})
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200 for bootstrap, got %d — %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["role"] != "admin" {
-		t.Errorf("first user must be forced to admin, got %v", resp["role"])
-	}
-}
-
-func TestBootstrapSecondUserRequiresAdmin(t *testing.T) {
-	store := newTestStore()
-	srv := newTestServer(store)
-	// Bootstrap first user
-	doJSON(srv, "POST", "/api/v1/users", "", map[string]string{
-		"email": "admin@example.com", "password": "adminpass",
-	})
-
-	// Second user without auth → must be rejected
-	w := doJSON(srv, "POST", "/api/v1/users", "", map[string]string{
-		"email": "analyst@example.com", "password": "pw",
+		"email": "attacker@example.com", "password": "initialpass",
 	})
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("want 401 for second user without auth, got %d", w.Code)
+		t.Fatalf("want 401, got %d — open bootstrap endpoint must be closed", w.Code)
 	}
 }
 
 func TestCreateUserAsAdmin(t *testing.T) {
 	store := newTestStore()
 	srv := newTestServer(store)
-	// Bootstrap
-	doJSON(srv, "POST", "/api/v1/users", "", map[string]string{
-		"email": "admin@example.com", "password": "adminpass",
-	})
+	seedUser(store, "admin@example.com", "adminpass", "admin")
 	token := login(t, srv, "admin@example.com", "adminpass")
 
 	w := doJSON(srv, "POST", "/api/v1/users", token, map[string]string{

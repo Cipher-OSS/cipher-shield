@@ -57,6 +57,19 @@ variable "shield_mode" {
   default     = "enforce"
 }
 
+variable "admin_email" {
+  type        = string
+  description = "Email address for the first admin account. Server creates the account on first startup when no users exist."
+  default     = ""
+}
+
+variable "admin_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the first admin account. Remove after confirming the admin account is created."
+  default     = ""
+}
+
 variable "api_max_count" {
   description = "Maximum number of API container replicas"
   default     = 10
@@ -203,6 +216,10 @@ resource "azurerm_container_app" "api" {
     name  = "anthropic-api-key"
     value = var.anthropic_api_key
   }
+  secret {
+    name  = "admin-password"
+    value = var.admin_password
+  }
 
   template {
     min_replicas = 1
@@ -221,6 +238,14 @@ resource "azurerm_container_app" "api" {
       env {
         name  = "SHIELD_CORS_ORIGIN"
         value = "https://shield.${var.domain}"
+      }
+      env {
+        name  = "SHIELD_ADMIN_EMAIL"
+        value = var.admin_email
+      }
+      env {
+        name        = "SHIELD_ADMIN_PASSWORD"
+        secret_name = "admin-password"
       }
       env {
         name        = "SHIELD_JWT_SECRET"

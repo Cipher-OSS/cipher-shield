@@ -64,11 +64,13 @@ az group create --name $RG --location $LOCATION
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 32)
+ADMIN_PASSWORD=$(openssl rand -hex 12)
 
 # Save these now — they won't be shown again
 echo "JWT_SECRET=$JWT_SECRET"
 echo "PROXY_TOKEN=$PROXY_TOKEN"
 echo "DB_PASSWORD=$DB_PASSWORD"
+echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
 ```
 
 ---
@@ -141,11 +143,14 @@ az containerapp create \
     "jwt-secret=${JWT_SECRET}" \
     "proxy-token=${PROXY_TOKEN}" \
     "db-url=${DB_URL}" \
+    "admin-password=${ADMIN_PASSWORD}" \
   --env-vars \
     SHIELD_MODE=enforce \
+    SHIELD_ADMIN_EMAIL=admin@yourcompany.com \
     SHIELD_JWT_SECRET=secretref:jwt-secret \
     SHIELD_PROXY_TOKEN=secretref:proxy-token \
-    DATABASE_URL=secretref:db-url
+    DATABASE_URL=secretref:db-url \
+    SHIELD_ADMIN_PASSWORD=secretref:admin-password
 
 API_URL=$(az containerapp show \
   --name cipher-shield-api --resource-group $RG \
@@ -196,17 +201,21 @@ curl https://$API_URL/api/v1/health
 
 ---
 
-## 9. Bootstrap the first admin user
+## 9. First login
+
+The server created the admin account on first startup. Log in at `https://$API_URL` with the `ADMIN_PASSWORD` you generated in step 3.
+
+After confirming access, remove the admin password secret — it's no longer needed:
 
 ```bash
-ADMIN_PASSWORD=$(openssl rand -hex 12)
-echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
-curl -X POST https://$API_URL/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
-```
+az containerapp secret remove \
+  --name cipher-shield-api --resource-group $RG \
+  --secret-names admin-password
 
-This endpoint is open when the users table is empty; the first user is forced to `admin`.
+az containerapp update \
+  --name cipher-shield-api --resource-group $RG \
+  --remove-env-vars SHIELD_ADMIN_PASSWORD
+```
 
 ---
 

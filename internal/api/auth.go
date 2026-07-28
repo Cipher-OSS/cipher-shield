@@ -66,23 +66,6 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-// requireAdminOrBootstrap allows unauthenticated access only when the users
-// table is empty (first-run bootstrap). Once any user exists, admin is required.
-func (s *Server) requireAdminOrBootstrap(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		count, err := s.store.CountUsers(r.Context())
-		if err != nil {
-			jsonError(w, "db error", http.StatusInternalServerError)
-			return
-		}
-		if count == 0 {
-			next(w, r)
-			return
-		}
-		s.requireAdmin(next)(w, r)
-	}
-}
-
 // POST /api/v1/auth/login
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if len(s.jwtSecret) == 0 {

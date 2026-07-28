@@ -153,19 +153,28 @@ For production, use your cloud provider's secret manager rather than plain envir
 
 If you're using a VPN or private network, restrict port 8080 to your VPN subnet.
 
-### The first admin user bootstrap isn't working
+### The admin account wasn't created on startup
 
-`POST /api/v1/users` requires no auth only when the users table is completely empty. If a previous attempt partially created a user, the table may not be empty. Check:
+The server creates the first admin on startup when `SHIELD_ADMIN_EMAIL` and `SHIELD_ADMIN_PASSWORD` are both set and the users table is empty. Check the container logs for the bootstrap line:
+
+```sh
+# Docker
+docker logs cipher-shield | grep bootstrap
+
+# Cloud Run
+gcloud run services logs read cipher-shield-api --region=REGION --limit=30 | grep bootstrap
+```
+
+If you see `[bootstrap] WARNING: no users exist...`, the env vars weren't injected. Confirm they're set and restart the container.
+
+If a previous startup attempt left a broken user entry, the bootstrap will be skipped. Check and clean up if needed:
 
 ```sh
 psql $DATABASE_URL -c "SELECT user_id, email, role FROM users;"
+psql $DATABASE_URL -c "DELETE FROM users;"   # only if the entry is broken
 ```
 
-If there's a broken user entry, delete it and retry:
-
-```sh
-psql $DATABASE_URL -c "DELETE FROM users;"
-```
+Then restart the container with `SHIELD_ADMIN_EMAIL` and `SHIELD_ADMIN_PASSWORD` set.
 
 ### How do I rotate the proxy token?
 

@@ -21,6 +21,7 @@ import (
 	"github.com/cipher-oss/cipher-shield/internal/db"
 	"github.com/cipher-oss/cipher-shield/internal/pipeline"
 	"github.com/cipher-oss/cipher-shield/internal/proxy"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // version is set at build time via -ldflags "-X main.version=<tag>".
@@ -77,6 +78,39 @@ func main() {
 		log.Fatalf("[startup] db open: %v", err)
 	}
 	defer store.Close()
+
+	// ── Admin bootstrap ───────────────────────────────────────────────────────
+	// SHIELD_ADMIN_EMAIL + SHIELD_ADMIN_PASSWORD are read directly from the
+	// environment (not flags) so they never appear in process listings.
+	adminEmail    := os.Getenv("SHIELD_ADMIN_EMAIL")
+	adminPassword := os.Getenv("SHIELD_ADMIN_PASSWORD")
+
+	userCount, err := store.CountUsers(context.Background())
+	if err != nil {
+		log.Fatalf("[bootstrap] db error counting users: %v", err)
+	}
+	switch {
+	case userCount > 0:
+		// Users already exist — skip bootstrap regardless of env vars.
+	case adminEmail != "" && adminPassword != "":
+		if len(adminPassword) < 8 {
+			log.Fatalf("[bootstrap] SHIELD_ADMIN_PASSWORD must be at least 8 characters")
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), 12)
+		if err != nil {
+			log.Fatalf("[bootstrap] failed to hash admin password: %v", err)
+		}
+		if _, err := store.CreateUser(context.Background(), adminEmail, string(hash), "admin"); err != nil {
+			log.Fatalf("[bootstrap] failed to create admin: %v", err)
+		}
+		log.Printf("[bootstrap] admin created: %s", adminEmail)
+		log.Printf("[bootstrap] remove SHIELD_ADMIN_PASSWORD from your environment after first login")
+	default:
+		if len(*jwtSecret) > 0 {
+			log.Printf("[bootstrap] WARNING: no users exist and SHIELD_ADMIN_EMAIL + SHIELD_ADMIN_PASSWORD are not set")
+			log.Printf("[bootstrap] WARNING: the dashboard will be inaccessible until an admin account is created")
+		}
+	}
 
 	// ── Analysis pipeline ─────────────────────────────────────────────────────
 	cfg := pipeline.DefaultConfig()

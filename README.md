@@ -139,6 +139,8 @@ curl -X POST http://<your-server>:8080/api/v1/exceptions \
 | `SHIELD_MODE` | `enforce` | `enforce` blocks malicious packages. `warn` logs but never blocks. `audit` is fully transparent. Start with `warn` to validate before enforcing. |
 | `SHIELD_PROXY_ADDR` | `:7070` | Registry proxy listen address. |
 | `SHIELD_API_ADDR` | `:8080` | Dashboard + API listen address (server binary only). |
+| `SHIELD_ADMIN_EMAIL` | — | Email for the first admin account. Server creates the account on first startup when no users exist. Safe to leave set after bootstrap. |
+| `SHIELD_ADMIN_PASSWORD` | — | Password for the first admin account. Used once on first startup, then ignored. Remove from your environment after confirming the account is created. |
 | `SHIELD_JWT_SECRET` | — | Secret for signing dashboard JWTs. Required for auth. Generate with `openssl rand -hex 32`. |
 | `SHIELD_PROXY_TOKEN` | — | Pre-shared token authenticating dev proxies to the central server. Generate with `openssl rand -hex 32`. |
 | `SHIELD_SERVER_URL` | — | URL of the central server. Used by the standalone proxy to ship results and sync exceptions. |
@@ -167,7 +169,7 @@ All authenticated endpoints require `Authorization: Bearer <token>`. Obtain a to
 | `POST` | `/api/v1/auth/login` | none | `{email, password}` → `{token}`. |
 | `GET` | `/api/v1/auth/me` | JWT | Returns the current user from the token. |
 | `GET` | `/api/v1/users` | admin JWT | List all users. |
-| `POST` | `/api/v1/users` | admin JWT (or none on empty table) | Create a user. First request creates an admin with no auth required. |
+| `POST` | `/api/v1/users` | admin JWT | Create a user. Bootstrap the first admin via `SHIELD_ADMIN_EMAIL` + `SHIELD_ADMIN_PASSWORD` at startup. |
 | `POST` | `/api/v1/users/{id}/reset-password` | admin JWT | Reset a user's password. |
 | `POST` | `/api/v1/scan/package` | JWT | Scan `{ecosystem, name, version}`. Downloads tarball, runs all four tiers. |
 | `POST` | `/api/v1/scan/lockfile` | JWT | Scan an uploaded lockfile. Accepts multipart or raw body with `?filename=`. |

@@ -60,6 +60,19 @@ variable "deletion_protection" {
   default     = true
 }
 
+variable "admin_email" {
+  type        = string
+  description = "Email address for the first admin account. Server creates the account on first startup when no users exist. Leave empty after initial bootstrap."
+  default     = ""
+}
+
+variable "admin_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the first admin account. Stored in Secrets Manager. Remove after confirming the admin account is created."
+  default     = ""
+}
+
 # ── Secrets Manager data sources ─────────────────────────────────────────────
 # Pre-create these three secrets before running terraform apply:
 #
@@ -382,7 +395,8 @@ resource "aws_iam_role_policy" "secrets_read" {
           data.aws_secretsmanager_secret.jwt_secret.arn,
           data.aws_secretsmanager_secret.proxy_token.arn,
         ],
-        aws_secretsmanager_secret.anthropic_api_key[*].arn
+        aws_secretsmanager_secret.anthropic_api_key[*].arn,
+        aws_secretsmanager_secret.admin_password[*].arn
       )
     }]
   })
@@ -410,6 +424,17 @@ resource "aws_secretsmanager_secret_version" "anthropic_api_key" {
   secret_string = var.anthropic_api_key
 }
 
+resource "aws_secretsmanager_secret" "admin_password" {
+  count = var.admin_password != "" ? 1 : 0
+  name  = "cipher-shield/admin-password"
+}
+
+resource "aws_secretsmanager_secret_version" "admin_password" {
+  count         = var.admin_password != "" ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.admin_password[0].id
+  secret_string = var.admin_password
+}
+
 # ── Locals ────────────────────────────────────────────────────────────────────
 
 locals {
@@ -422,7 +447,8 @@ locals {
       { name = "SHIELD_JWT_SECRET",  valueFrom = data.aws_secretsmanager_secret.jwt_secret.arn },
       { name = "SHIELD_PROXY_TOKEN", valueFrom = data.aws_secretsmanager_secret.proxy_token.arn },
     ],
-    [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }]
+    [for arn in aws_secretsmanager_secret.anthropic_api_key[*].arn : { name = "ANTHROPIC_API_KEY", valueFrom = arn }],
+    [for arn in aws_secretsmanager_secret.admin_password[*].arn : { name = "SHIELD_ADMIN_PASSWORD", valueFrom = arn }]
   )
 
   proxy_secrets = concat(
@@ -451,7 +477,8 @@ resource "aws_ecs_task_definition" "api" {
     ]
     environment = [
       { name = "SHIELD_MODE",        value = var.shield_mode },
-      { name = "SHIELD_CORS_ORIGIN", value = "https://shield.${var.domain}" }
+      { name = "SHIELD_CORS_ORIGIN", value = "https://shield.${var.domain}" },
+      { name = "SHIELD_ADMIN_EMAIL", value = var.admin_email },
     ]
     secrets = local.api_secrets
     logConfiguration = {

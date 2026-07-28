@@ -94,7 +94,7 @@ func (s *Server) routes() {
 
 	// Users (admin or bootstrap)
 	s.router.HandleFunc("/api/v1/users", s.requireAdmin(s.handleListUsers)).Methods("GET", "OPTIONS")
-	s.router.HandleFunc("/api/v1/users", s.requireAdminOrBootstrap(s.handleCreateUser)).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/users", s.requireAdmin(s.handleCreateUser)).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/v1/users/{id}/reset-password", s.requireAdmin(s.handleResetPassword)).Methods("POST", "OPTIONS")
 
 	// Proxy reporting + exception sync (authenticated by pre-shared proxy token)

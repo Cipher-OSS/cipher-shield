@@ -21,7 +21,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{"users": users})
 }
 
-// POST /api/v1/users — admin only after first user exists; no auth for bootstrap
+// POST /api/v1/users — admin only
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -32,15 +32,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "email and password of at least 8 characters required", http.StatusBadRequest)
 		return
 	}
-	count, err := s.store.CountUsers(r.Context())
-	if err != nil {
-		jsonError(w, "db error", http.StatusInternalServerError)
-		return
-	}
 	role := strings.ToLower(req.Role)
-	if count == 0 {
-		role = "admin" // bootstrap: first user is always admin
-	} else if role != "admin" && role != "analyst" {
+	if role != "admin" && role != "analyst" {
 		role = "analyst"
 	}
 	hash, err := bcryptHash(req.Password)

@@ -31,6 +31,12 @@ shield_mode = "enforce"
 # Set to false before running terraform destroy.
 deletion_protection = true
 
+# First-run bootstrap — server creates this admin on startup when no users exist.
+# Remove admin_password from this file (and from Secret Manager) after confirming
+# the account is created.
+admin_email    = "admin@yourcompany.com"
+admin_password = ""  # openssl rand -hex 12
+
 # Optional scaling limits (defaults shown)
 # api_max_count   = 10   # max API Cloud Run instances
 # proxy_max_count = 10   # max proxy Cloud Run instances

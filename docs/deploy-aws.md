@@ -99,17 +99,11 @@ Add two more CNAME records to your DNS provider (separate from the ACM validatio
 
 ---
 
-## Bootstrap the first admin user
+## First login
 
-The `/api/v1/users` endpoint is open when the users table is empty. The first user created is forced to `admin`.
+Set `admin_email` and `admin_password` in `terraform.tfvars` before the first `terraform apply`. The server creates the admin account on first startup.
 
-```bash
-curl -X POST https://shield.yourdomain.com/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","password":"...","role":"admin"}'
-```
-
-Open `https://shield.yourdomain.com` and log in.
+Open `https://shield.yourdomain.com` and log in. After confirming access, remove `admin_password` from `terraform.tfvars`, delete the Secrets Manager secret (`cipher-shield/admin-password`), and run `terraform apply` again to remove it from the task definition.
 
 ---
 
