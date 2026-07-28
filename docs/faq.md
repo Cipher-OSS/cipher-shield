@@ -167,6 +167,29 @@ If there's a broken user entry, delete it and retry:
 psql $DATABASE_URL -c "DELETE FROM users;"
 ```
 
+### How do I rotate the proxy token?
+
+`SHIELD_PROXY_TOKEN` is the pre-shared secret that authenticates developer proxies to the central server. Rotate it by updating the secret in your environment and redeploying — no downtime to developer installs, though there's a brief window where proxies can't ship scan results to the server.
+
+**1. Generate a new token:**
+```sh
+NEW_TOKEN=$(openssl rand -hex 32)
+echo "New token: $NEW_TOKEN — save this before proceeding"
+```
+
+**2. Update the secret in your environment:**
+
+- **Docker:** Update `SHIELD_PROXY_TOKEN` in your `.env` or secrets config, then `docker compose up -d`.
+- **AWS:** Update the `cipher-proxy-token` secret in Secrets Manager, then force a new ECS deployment on both services.
+- **GCP:** `echo -n "$NEW_TOKEN" | gcloud secrets versions add cipher-proxy-token --data-file=-`, then `gcloud run services update` on both services.
+- **Azure:** `az containerapp secret set --name cipher-shield-api ... --secrets "proxy-token=$NEW_TOKEN"`, then `az containerapp update` on both apps.
+
+**3. Redeploy order:**
+
+Update the API service first, then the proxy service(s). During the gap between the two deployments, proxies using the old token will get 401s from the API and scan results won't be shipped — but proxies still intercept and block packages locally. Once the proxy service is redeployed with the new token, reporting resumes.
+
+> Dashboard data will have a gap for any packages installed during the rotation window. Blocking is unaffected throughout.
+
 ### How do I reset a user's password?
 
 Admins can reset any user's password via the API:
