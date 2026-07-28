@@ -16,8 +16,6 @@ import (
 	"strings"
 )
 
-const apiVersion = "1.3.0"
-
 // Scanner is the minimal interface the API needs from the pipeline.
 type Scanner interface {
 	Analyze(ctx context.Context, pkg shield.PackageRef, tarball []byte) (*shield.ScanResult, error)
@@ -42,6 +40,7 @@ type Server struct {
 	badlist      BadlistSource // optional; nil disables /api/v1/badlist
 	jwtSecret    []byte
 	proxyToken   []byte
+	version      string
 	mode         string     // enforce | warn | audit
 	corsOrigin   string     // allowed CORS origin; "*" if empty
 	loginLimiter *ipLimiter // 5 attempts per minute per IP
@@ -49,7 +48,7 @@ type Server struct {
 }
 
 // New creates a Server.
-func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, corsOrigin string, expander Expander, badlist BadlistSource) *Server {
+func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, corsOrigin string, expander Expander, badlist BadlistSource, version string) *Server {
 	if mode == "" {
 		mode = "enforce"
 	}
@@ -61,6 +60,7 @@ func New(store db.Store, scanner Scanner, jwtSecret, proxyToken []byte, mode, co
 		badlist:      badlist,
 		jwtSecret:    jwtSecret,
 		proxyToken:   proxyToken,
+		version:      version,
 		mode:         mode,
 		corsOrigin:   corsOrigin,
 		loginLimiter: newIPLimiter(1.0/12.0, 5), // 5 attempts per minute per IP

@@ -157,7 +157,7 @@ const testSecret = "test-jwt-secret-at-least-32-bytes!!"
 const testProxyToken = "test-proxy-token"
 
 func newTestServer(store *testStore) *api.Server {
-	return api.New(store, &stubScanner{}, []byte(testSecret), []byte(testProxyToken), "enforce", "", nil, nil)
+	return api.New(store, &stubScanner{}, []byte(testSecret), []byte(testProxyToken), "enforce", "", nil, nil, "dev")
 }
 
 // hashPw hashes with MinCost for fast tests.
@@ -240,8 +240,8 @@ func TestConfig(t *testing.T) {
 		Mode        string `json:"mode"`
 	}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp.Version != "1.3.0" {
-		t.Errorf("want version=1.3.0, got %q", resp.Version)
+	if resp.Version != "dev" {
+		t.Errorf("want version=dev, got %q", resp.Version)
 	}
 	if !resp.AuthEnabled {
 		t.Error("want auth_enabled=true when jwtSecret is set")
@@ -253,7 +253,7 @@ func TestConfig(t *testing.T) {
 
 func TestConfigNoAuth(t *testing.T) {
 	store := newTestStore()
-	srv := api.New(store, &stubScanner{}, nil, nil, "warn", "", nil, nil)
+	srv := api.New(store, &stubScanner{}, nil, nil, "warn", "", nil, nil, "dev")
 	w := doJSON(srv, "GET", "/api/v1/config", "", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
@@ -333,7 +333,7 @@ func TestLoginMissingFields(t *testing.T) {
 
 func TestLoginNoJWTSecret(t *testing.T) {
 	store := newTestStore()
-	srv := api.New(store, &stubScanner{}, nil, nil, "enforce", "", nil, nil)
+	srv := api.New(store, &stubScanner{}, nil, nil, "enforce", "", nil, nil, "dev")
 	w := doJSON(srv, "POST", "/api/v1/auth/login", "", map[string]string{
 		"email": "a@b.com", "password": "pw",
 	})
