@@ -79,6 +79,19 @@ variable "shield_mode" {
   default     = "enforce"
 }
 
+variable "admin_email" {
+  type        = string
+  description = "Email address for the first admin account. Server creates the account on first startup when no users exist."
+  default     = ""
+}
+
+variable "admin_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the first admin account. Stored in Secret Manager. Remove after confirming the admin account is created."
+  default     = ""
+}
+
 variable "api_max_count" {
   description = "Maximum number of API Cloud Run instances"
   default     = 10
@@ -285,6 +298,25 @@ resource "google_secret_manager_secret_version" "proxy_token" {
   secret_data = var.proxy_token
 }
 
+resource "google_secret_manager_secret" "admin_password" {
+  count     = var.admin_password != "" ? 1 : 0
+  secret_id = "cipher-admin-password"
+  replication { auto {} }
+}
+
+resource "google_secret_manager_secret_version" "admin_password" {
+  count       = var.admin_password != "" ? 1 : 0
+  secret      = google_secret_manager_secret.admin_password[0].id
+  secret_data = var.admin_password
+}
+
+resource "google_secret_manager_secret_iam_member" "admin_password" {
+  count     = var.admin_password != "" ? 1 : 0
+  secret_id = google_secret_manager_secret.admin_password[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_compute_default_service_account.default.email}"
+}
+
 resource "google_secret_manager_secret" "anthropic_api_key" {
   count      = var.anthropic_api_key != "" ? 1 : 0
   secret_id  = "cipher-anthropic-key"
@@ -365,6 +397,23 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "SHIELD_CORS_ORIGIN"
         value = "https://shield.${var.domain}"
+      }
+      env {
+        name  = "SHIELD_ADMIN_EMAIL"
+        value = var.admin_email
+      }
+
+      dynamic "env" {
+        for_each = google_secret_manager_secret.admin_password[*].secret_id
+        content {
+          name = "SHIELD_ADMIN_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
       }
 
       env {

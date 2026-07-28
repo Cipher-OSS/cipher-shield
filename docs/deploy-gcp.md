@@ -70,15 +70,18 @@ export DOMAIN=yourdomain.com   # replace with your domain
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 32)
+ADMIN_PASSWORD=$(openssl rand -hex 12)
 
 # Save these now — they won't be shown again
 echo "JWT_SECRET=$JWT_SECRET"
 echo "PROXY_TOKEN=$PROXY_TOKEN"
 echo "DB_PASSWORD=$DB_PASSWORD"
+echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
 
-echo -n "$JWT_SECRET"  | gcloud secrets create cipher-jwt-secret  --data-file=- --project=$PROJECT_ID
-echo -n "$PROXY_TOKEN" | gcloud secrets create cipher-proxy-token --data-file=- --project=$PROJECT_ID
-echo -n "$DB_PASSWORD" | gcloud secrets create cipher-db-password --data-file=- --project=$PROJECT_ID
+echo -n "$JWT_SECRET"    | gcloud secrets create cipher-jwt-secret    --data-file=- --project=$PROJECT_ID
+echo -n "$PROXY_TOKEN"   | gcloud secrets create cipher-proxy-token   --data-file=- --project=$PROJECT_ID
+echo -n "$DB_PASSWORD"   | gcloud secrets create cipher-db-password   --data-file=- --project=$PROJECT_ID
+echo -n "$ADMIN_PASSWORD"| gcloud secrets create cipher-admin-password --data-file=- --project=$PROJECT_ID
 ```
 
 ---
@@ -148,7 +151,7 @@ gcloud compute networks vpc-access connectors create cipher-connector \
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-for SECRET in cipher-jwt-secret cipher-proxy-token cipher-db-password cipher-db-url; do
+for SECRET in cipher-jwt-secret cipher-proxy-token cipher-db-password cipher-db-url cipher-admin-password; do
   gcloud secrets add-iam-policy-binding $SECRET \
     --member="serviceAccount:$SA" \
     --role="roles/secretmanager.secretAccessor"
@@ -166,8 +169,8 @@ gcloud run deploy cipher-shield-api \
   --port=8080 \
   --vpc-connector=cipher-connector \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="SHIELD_MODE=enforce" \
-  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest,DATABASE_URL=cipher-db-url:latest" \
+  --set-env-vars="SHIELD_MODE=enforce,SHIELD_ADMIN_EMAIL=admin@yourcompany.com" \
+  --set-secrets="SHIELD_JWT_SECRET=cipher-jwt-secret:latest,SHIELD_PROXY_TOKEN=cipher-proxy-token:latest,DATABASE_URL=cipher-db-url:latest,SHIELD_ADMIN_PASSWORD=cipher-admin-password:latest" \
   --allow-unauthenticated \
   --min-instances=1 \
   --max-instances=10
@@ -211,17 +214,23 @@ curl $API_URL/api/v1/health
 
 ---
 
-## 10. Bootstrap the first admin user
+## 10. First login
+
+The server created the admin account on first startup using `SHIELD_ADMIN_EMAIL` and `SHIELD_ADMIN_PASSWORD`. Check the logs to confirm:
 
 ```bash
-ADMIN_PASSWORD=$(openssl rand -hex 12)
-echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
-curl -X POST $API_URL/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
+gcloud run services logs read cipher-shield-api --region=$REGION --limit=20 | grep bootstrap
+# [bootstrap] admin created: admin@yourcompany.com
 ```
 
-This endpoint is open when the users table is empty; the first user is forced to `admin`.
+Open the API URL and log in. After confirming access, delete the admin password secret — it's no longer needed:
+
+```bash
+gcloud secrets delete cipher-admin-password --project=$PROJECT_ID -q
+gcloud run services update cipher-shield-api \
+  --region=$REGION \
+  --remove-secrets="SHIELD_ADMIN_PASSWORD"
+```
 
 ---
 

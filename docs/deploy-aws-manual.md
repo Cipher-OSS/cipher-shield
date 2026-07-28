@@ -56,16 +56,20 @@ export DOMAIN=yourdomain.com   # replace with your domain
 JWT_SECRET=$(openssl rand -hex 32)
 PROXY_TOKEN=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 32)
+ADMIN_PASSWORD=$(openssl rand -hex 12)
 
 # Save these now — they won't be shown again and are needed in later steps
 echo "JWT_SECRET=$JWT_SECRET"
 echo "PROXY_TOKEN=$PROXY_TOKEN"
 echo "DB_PASSWORD=$DB_PASSWORD"
+echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
 
 aws secretsmanager create-secret --region $AWS_REGION \
   --name $APP/jwt-secret --secret-string "$JWT_SECRET"
 aws secretsmanager create-secret --region $AWS_REGION \
   --name $APP/proxy-token --secret-string "$PROXY_TOKEN"
+aws secretsmanager create-secret --region $AWS_REGION \
+  --name $APP/admin-password --secret-string "$ADMIN_PASSWORD"
 
 # Capture full ARNs — AWS appends a random suffix (e.g. -PBDEw4) that must be
 # included in ECS task definitions; the base path alone will not work.
@@ -73,6 +77,8 @@ JWT_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
   --secret-id $APP/jwt-secret --query ARN --output text)
 PROXY_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
   --secret-id $APP/proxy-token --query ARN --output text)
+ADMIN_PWD_ARN=$(aws secretsmanager describe-secret --region $AWS_REGION \
+  --secret-id $APP/admin-password --query ARN --output text)
 ```
 
 ---
@@ -305,12 +311,14 @@ cat > /tmp/task-api.json << EOF
     "image": "${IMAGE}",
     "portMappings": [{"containerPort": 8080}],
     "environment": [
-      {"name": "SHIELD_MODE", "value": "enforce"}
+      {"name": "SHIELD_MODE",        "value": "enforce"},
+      {"name": "SHIELD_ADMIN_EMAIL", "value": "admin@yourcompany.com"}
     ],
     "secrets": [
-      {"name": "SHIELD_JWT_SECRET",  "valueFrom": "${JWT_ARN}"},
-      {"name": "SHIELD_PROXY_TOKEN", "valueFrom": "${PROXY_ARN}"},
-      {"name": "DATABASE_URL",       "valueFrom": "${DB_URL_ARN}"}
+      {"name": "SHIELD_JWT_SECRET",      "valueFrom": "${JWT_ARN}"},
+      {"name": "SHIELD_PROXY_TOKEN",     "valueFrom": "${PROXY_ARN}"},
+      {"name": "DATABASE_URL",           "valueFrom": "${DB_URL_ARN}"},
+      {"name": "SHIELD_ADMIN_PASSWORD",  "valueFrom": "${ADMIN_PWD_ARN}"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -429,19 +437,18 @@ done
 
 ---
 
-## 12. Bootstrap the first admin user
+## 12. First login
+
+The server created the admin account on first startup using `SHIELD_ADMIN_EMAIL` and `SHIELD_ADMIN_PASSWORD`. Open `https://shield.${DOMAIN}` and log in with those credentials.
+
+After confirming access, remove the `admin-password` secret from Secrets Manager and remove `SHIELD_ADMIN_PASSWORD` from the task definition — it's no longer needed:
 
 ```bash
-ADMIN_PASSWORD=$(openssl rand -hex 12)
-echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
-curl -X POST https://shield.${DOMAIN}/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
+aws secretsmanager delete-secret --region $AWS_REGION \
+  --secret-id $APP/admin-password --force-delete-without-recovery
 ```
 
-Open `https://shield.${DOMAIN}` and log in.
-
-This endpoint is open when the users table is empty; the first user is forced to `admin`. After that, it requires an admin JWT.
+Then force a new ECS deployment so the task picks up the updated secrets list.
 
 ---
 

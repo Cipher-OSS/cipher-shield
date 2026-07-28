@@ -23,9 +23,12 @@ export SHIELD_JWT_SECRET=$(openssl rand -hex 32)
 export SHIELD_PROXY_TOKEN=$(openssl rand -hex 32)
 export DB_PASSWORD=$(openssl rand -hex 32)
 export ANTHROPIC_API_KEY=""   # optional — set to your Anthropic API key to enable Claude analysis
+export SHIELD_ADMIN_EMAIL="admin@yourcompany.com"
+export SHIELD_ADMIN_PASSWORD=$(openssl rand -hex 12)
+echo "Admin password: $SHIELD_ADMIN_PASSWORD — save this before proceeding"
 ```
 
-Save these values somewhere secure — you'll need `SHIELD_PROXY_TOKEN` when configuring developer machines.
+Save all values somewhere secure before continuing. `SHIELD_PROXY_TOKEN` is needed when configuring developer machines. `SHIELD_ADMIN_PASSWORD` can be discarded after first login.
 
 ---
 
@@ -41,31 +44,23 @@ SHIELD_JWT_SECRET=$SHIELD_JWT_SECRET \
 SHIELD_PROXY_TOKEN=$SHIELD_PROXY_TOKEN \
 DB_PASSWORD=$DB_PASSWORD \
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+SHIELD_ADMIN_EMAIL=$SHIELD_ADMIN_EMAIL \
+SHIELD_ADMIN_PASSWORD=$SHIELD_ADMIN_PASSWORD \
 docker compose -f configs/docker-compose.yml up -d
 ```
 
-Verify it's running:
+On first startup, the server creates the admin account and logs `[bootstrap] admin created: admin@yourcompany.com`. Verify it's running:
 
 ```sh
 curl http://<your-server>:8080/api/v1/health
 # {"status":"ok","version":"1.3.0"}
 ```
 
+Open `http://<your-server>:8080` and log in with the admin credentials. After confirming access, remove `SHIELD_ADMIN_PASSWORD` from your environment and restart the container — it's no longer needed.
+
 ---
 
-## 3. Create the first admin account
-
-The first `POST /api/v1/users` request requires no authentication and creates an admin account. After that, the endpoint requires an admin JWT.
-
-```sh
-ADMIN_PASSWORD=$(openssl rand -hex 12)
-echo "Admin password: $ADMIN_PASSWORD — save this before proceeding"
-curl -X POST http://<your-server>:8080/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"you@company.com\",\"password\":\"${ADMIN_PASSWORD}\",\"role\":\"admin\"}"
-```
-
-Open `http://<your-server>:8080` and log in.
+## 3. Configure developer machines
 
 ---
 

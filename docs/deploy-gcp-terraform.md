@@ -139,21 +139,11 @@ Wait for both domains to show `ACTIVE` before proceeding.
 
 ---
 
-## Bootstrap the first admin user
+## First login
 
-Once the certificate is active, create the first admin account. Use `read -s` to avoid the password appearing in shell history:
+Set `admin_email` and `admin_password` in `terraform.tfvars` before the first `terraform apply`. The server creates the admin account on first startup and logs `[bootstrap] admin created`.
 
-```bash
-read -s -p "Admin password: " ADMIN_PASS && echo
-curl -X POST https://shield.yourdomain.com/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"$ADMIN_PASS\",\"role\":\"admin\"}"
-unset ADMIN_PASS
-```
-
-The first user is automatically granted `admin` regardless of the role field. This endpoint requires no authentication when the users table is empty and closes automatically once the first user exists.
-
-Open `https://shield.yourdomain.com` and log in.
+Open `https://shield.yourdomain.com` and log in. After confirming access, remove `admin_password` from `terraform.tfvars`, delete the `cipher-admin-password` secret from Secret Manager, and run `terraform apply` again to clean up.
 
 ---
 

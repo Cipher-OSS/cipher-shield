@@ -98,21 +98,11 @@ Azure Container Apps does not support Terraform-managed certificates in the `azu
 
 ---
 
-## Bootstrap the first admin user
+## First login
 
-Once the custom domain is resolving with a valid cert:
+Set `admin_email` and `admin_password` in `terraform.tfvars` before the first `terraform apply`. The server creates the admin account on first startup.
 
-```bash
-read -s -p "Admin password: " ADMIN_PASS && echo
-curl -X POST https://shield.yourdomain.com/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@yourcompany.com\",\"password\":\"$ADMIN_PASS\",\"role\":\"admin\"}"
-unset ADMIN_PASS
-```
-
-The first user is automatically granted `admin` regardless of the role field. This endpoint requires no authentication when the users table is empty and closes automatically once the first user exists.
-
-Open `https://shield.yourdomain.com` and log in.
+Open `https://shield.yourdomain.com` and log in. After confirming access, remove `admin_password` from `terraform.tfvars` and run `terraform apply` again — Terraform will remove the secret and update the container app.
 
 ---
 
