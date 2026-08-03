@@ -27,6 +27,8 @@ services:
       - SHIELD_PROXY_TOKEN=${SHIELD_PROXY_TOKEN}
       - SHIELD_MODE=${SHIELD_MODE:-enforce}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SHIELD_ADMIN_EMAIL=${SHIELD_ADMIN_EMAIL:-}
+      - SHIELD_ADMIN_PASSWORD=${SHIELD_ADMIN_PASSWORD:-}
       - DATABASE_URL=postgres://shield:${DB_PASSWORD}@postgres:5432/shield?sslmode=disable
     depends_on:
       postgres:
