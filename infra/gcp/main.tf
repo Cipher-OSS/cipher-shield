@@ -149,16 +149,11 @@ resource "google_compute_subnetwork" "subnet" {
   network       = google_compute_network.vpc.id
 }
 
-# VPC connector gives Cloud Run egress into the VPC so it can reach Cloud SQL's
-# private IP. Without this, Cloud Run has no path to the database.
-resource "google_vpc_access_connector" "connector" {
-  name          = "cipher-shield-connector"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc.name
-  ip_cidr_range = "10.8.0.0/28"
-
-  depends_on = [google_project_service.vpcaccess]
-}
+# Direct VPC Egress (Cloud Run V2 native feature) replaces the legacy VPC
+# Access Connector. Cloud Run instances attach directly to the subnet with no
+# intermediate GCE instances required.
+# vpcaccess API is no longer needed but left enabled to avoid destroy/re-enable
+# churn if any legacy tooling checks for it.
 
 # RFC 1918 address range peered into Cloud SQL's service network.
 resource "google_compute_global_address" "sql_private_ip" {
@@ -299,9 +294,13 @@ resource "google_secret_manager_secret_version" "proxy_token" {
 }
 
 resource "google_secret_manager_secret" "admin_password" {
-  count     = var.admin_password != "" ? 1 : 0
-  secret_id = "cipher-admin-password"
-  replication { auto {} }
+  count      = var.admin_password != "" ? 1 : 0
+  secret_id  = "cipher-admin-password"
+  project    = var.gcp_project
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
 }
 
 resource "google_secret_manager_secret_version" "admin_password" {
@@ -311,10 +310,11 @@ resource "google_secret_manager_secret_version" "admin_password" {
 }
 
 resource "google_secret_manager_secret_iam_member" "admin_password" {
-  count     = var.admin_password != "" ? 1 : 0
-  secret_id = google_secret_manager_secret.admin_password[0].secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${data.google_compute_default_service_account.default.email}"
+  count      = var.admin_password != "" ? 1 : 0
+  project    = var.gcp_project
+  secret_id  = google_secret_manager_secret.admin_password[0].secret_id
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${google_service_account.shield.email}"
 }
 
 resource "google_secret_manager_secret" "anthropic_api_key" {
@@ -377,8 +377,11 @@ resource "google_cloud_run_v2_service" "api" {
     service_account = google_service_account.shield.email
 
     vpc_access {
-      connector = google_vpc_access_connector.connector.id
-      # Route only private-range traffic through the VPC connector.
+      network_interfaces {
+        network    = google_compute_network.vpc.name
+        subnetwork = google_compute_subnetwork.subnet.name
+      }
+      # Route only private-range traffic through the VPC (Cloud SQL).
       # Public outbound traffic (OSV, registry APIs) exits directly.
       egress = "PRIVATE_RANGES_ONLY"
     }
@@ -486,8 +489,11 @@ resource "google_cloud_run_v2_service" "proxy" {
     service_account = google_service_account.shield.email
 
     vpc_access {
-      connector = google_vpc_access_connector.connector.id
-      egress    = "PRIVATE_RANGES_ONLY"
+      network_interfaces {
+        network    = google_compute_network.vpc.name
+        subnetwork = google_compute_subnetwork.subnet.name
+      }
+      egress = "PRIVATE_RANGES_ONLY"
     }
 
     containers {
