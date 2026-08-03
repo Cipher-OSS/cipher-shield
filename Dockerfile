@@ -12,8 +12,9 @@ RUN go mod download
 
 COPY . .
 
+ARG VERSION=dev
 RUN CGO_ENABLED=1 GOOS=linux \
-    go build -ldflags="-s -w" -o /out/cipher-shield ./cmd/server && \
+    go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/cipher-shield ./cmd/server && \
     CGO_ENABLED=1 GOOS=linux \
     go build -ldflags="-s -w" -o /out/cipher-shield-proxy ./cmd/proxy
 
