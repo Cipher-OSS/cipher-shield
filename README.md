@@ -107,7 +107,7 @@ Deploy cipher-shield into your existing cloud infrastructure. Terraform modules 
 |---|---|---|---|---|
 | AWS | [deploy-aws.md](docs/deploy-aws.md) | [deploy-aws-manual.md](docs/deploy-aws-manual.md) | ECS Fargate + RDS PostgreSQL | ~$50–80/mo |
 | GCP | [deploy-gcp-terraform.md](docs/deploy-gcp-terraform.md) | [deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Cloud SQL | ~$15–30/mo |
-| Azure | [deploy-azure-terraform.md](docs/deploy-azure-terraform.md) | [deploy-azure.md](docs/deploy-azure.md) | Container Apps + PostgreSQL Flexible Server | ~$20–40/mo |
+| Azure *(community, untested)* | [deploy-azure-terraform.md](docs/deploy-azure-terraform.md) | [deploy-azure.md](docs/deploy-azure.md) | Container Apps + PostgreSQL Flexible Server | ~$20–40/mo |
 
 ---
 
