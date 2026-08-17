@@ -1,8 +1,8 @@
 .PHONY: build test clean
 
 build:
-	go build -o bin/cipher-shield ./cmd/shield/
-	go build -o bin/shield-server ./cmd/server/
+	go build -o bin/cipher-shield ./cmd/server/
+	go build -o bin/cipher-shield-proxy ./cmd/proxy/
 
 test:
 	go test ./...

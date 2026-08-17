@@ -342,8 +342,17 @@ func (p *Proxy) handleTarball(conn net.Conn, req *http.Request, pkg shield.Packa
 
 	result, err := p.cfg.Pipeline.Analyze(ctx, pkg, tarball)
 	if err != nil {
-		log.Printf("[proxy] analysis error for %s@%s: %v — passing through", pkg.Name, pkg.Version, err)
-		p.forwardResponse(conn, upResp, tarball)
+		if p.cfg.Mode != ModeEnforce {
+			log.Printf("[proxy] analysis error for %s@%s: %v — passing through (mode=%s)", pkg.Name, pkg.Version, err, p.cfg.Mode)
+			p.forwardResponse(conn, upResp, tarball)
+			return
+		}
+		// enforce mode fails closed: an unscanned package is blocked, not shipped.
+		log.Printf("[proxy] analysis error for %s@%s: %v — blocking (fail closed)", pkg.Name, pkg.Version, err)
+		writeError(conn, http.StatusServiceUnavailable, fmt.Sprintf(
+			"BLOCKED: %s@%s — cipher-shield could not complete the security scan (%v)\n"+
+				"Failing closed: the install is blocked until the scanner is healthy again.",
+			pkg.Name, pkg.Version, err))
 		return
 	}
 
